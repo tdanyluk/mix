@@ -428,13 +428,16 @@ int ToMixChar(char c) {
 }
 
 std::optional<int64_t> FileSize(std::fstream& fstream) {
-  if (!fstream.good()) return std::nullopt;
+  if (!fstream.good())
+    return std::nullopt;
   std::fstream::pos_type pos = fstream.tellp();
   fstream.seekp(0, std::ios_base::end);
-  if (!fstream.good()) return std::nullopt;
+  if (!fstream.good())
+    return std::nullopt;
   auto size = (int64_t)fstream.tellp();
   fstream.seekp(pos);
-  if (!fstream.good()) return std::nullopt;
+  if (!fstream.good())
+    return std::nullopt;
   return size;
 }
 
@@ -475,7 +478,8 @@ bool OpenFileAt0R(std::fstream& fstream, const std::string& file_name,
 bool SeekWithExpand(std::fstream& fstream, const std::string& file_name,
                     int64_t location) {
   std::optional<int64_t> opt_size = FileSize(fstream);
-  if (!opt_size.has_value()) return false;
+  if (!opt_size.has_value())
+    return false;
   int64_t size = opt_size.value();
 
   if (location <= size) {
@@ -487,7 +491,8 @@ bool SeekWithExpand(std::fstream& fstream, const std::string& file_name,
   std::cerr << "expanding " << file_name << " " << size << " -> " << location
             << std::endl;
   fstream.seekp(0, std::ios_base::end);
-  if (!fstream.good()) return false;
+  if (!fstream.good())
+    return false;
   while (size < location) {
     fstream.put(0);
     size++;
@@ -600,11 +605,8 @@ void spec(State& state, Word instr) {
       state.rA().set_abs(hl.high.abs());
       state.rX().set_abs(hl.low.abs());
     } break;
-    case kHltField:
-      state.halt = true;
-      break;
-    default:
-      assert(false);
+    case kHltField: state.halt = true; break;
+    default: assert(false);
   }
 }
 
@@ -612,12 +614,8 @@ void shift(State& state, Word instr) {
   int shift = get_address(state, instr);
   assert(shift >= 0);
   switch (instr.field()) {
-    case kSlaField:
-      state.rA() = shift_left(state.rA(), shift);
-      break;
-    case kSraField:
-      state.rA() = shift_left(state.rA(), -shift);
-      break;
+    case kSlaField: state.rA() = shift_left(state.rA(), shift); break;
+    case kSraField: state.rA() = shift_left(state.rA(), -shift); break;
     case kSlaxField: {
       HighLow hl = shift_left(state.rA(), state.rX(), shift, /*cyclic=*/false);
       state.rA() = hl.high;
@@ -639,8 +637,7 @@ void shift(State& state, Word instr) {
       state.rA() = hl.high;
       state.rX() = hl.low;
     } break;
-    default:
-      assert(false);
+    default: assert(false);
   }
 }
 
@@ -958,26 +955,16 @@ void jred(State& state, Word instr) {
 bool should_jump(int field, bool overflow, int cmp_result) {
   switch (field) {
     case kJmpField:
-    case kJsjField:
-      return true;
-    case kJovField:
-      return overflow;
-    case kJnovField:
-      return !overflow;
-    case kJlField:
-      return cmp_result < 0;
-    case kJeField:
-      return cmp_result == 0;
-    case kJgField:
-      return cmp_result > 0;
-    case kJgeField:
-      return cmp_result >= 0;
-    case kJneField:
-      return cmp_result != 0;
-    case kJleField:
-      return cmp_result <= 0;
-    default:
-      throw MixException("Unexpected field for jump instruction.\n");
+    case kJsjField: return true;
+    case kJovField: return overflow;
+    case kJnovField: return !overflow;
+    case kJlField: return cmp_result < 0;
+    case kJeField: return cmp_result == 0;
+    case kJgField: return cmp_result > 0;
+    case kJgeField: return cmp_result >= 0;
+    case kJneField: return cmp_result != 0;
+    case kJleField: return cmp_result <= 0;
+    default: throw MixException("Unexpected field for jump instruction.\n");
   }
 }
 
@@ -993,28 +980,20 @@ void jump(State& state, Word instr) {
 
   switch (field) {
     case kJovField:
-    case kJnovField:
-      state.overflow = false;
+    case kJnovField: state.overflow = false;
     default:;
   }
 }
 
 bool should_reg_jump(int value, int field) {
   switch (field) {
-    case kJnField:
-      return value < 0;
-    case kJzField:
-      return value == 0;
-    case kJpField:
-      return value > 0;
-    case kJnnField:
-      return value >= 0;
-    case kJnzField:
-      return value != 0;
-    case kJnpField:
-      return value <= 0;
-    default:
-      assert(false);
+    case kJnField: return value < 0;
+    case kJzField: return value == 0;
+    case kJpField: return value > 0;
+    case kJnnField: return value >= 0;
+    case kJnzField: return value != 0;
+    case kJnpField: return value <= 0;
+    default: assert(false);
   }
 }
 
@@ -1045,14 +1024,9 @@ void addr_op(State& state, Word instr) {
       target_reg = wo.word;
       state.overflow |= wo.overflow;
       break;
-    case kEntField:
-      target_reg = Word(get_address(state, instr));
-      break;
-    case kEnnField:
-      target_reg = -Word(get_address(state, instr));
-      break;
-    default:
-      assert(false);
+    case kEntField: target_reg = Word(get_address(state, instr)); break;
+    case kEnnField: target_reg = -Word(get_address(state, instr)); break;
+    default: assert(false);
   }
   if (code >= kAddrOp1 && code <= kAddrOp6) {
     if (target_reg.abs() >= 64 * 64) {
@@ -1077,14 +1051,14 @@ struct OpDesc {
 };
 
 const std::array<OpDesc, kNumOpCodes> op_table = {{
-    {kNop, cycle, 1},         {kAdd, add, 2},         {kSub, sub, 2},
+    {kNop, cycle, 1},       {kAdd, add, 2},         {kSub, sub, 2},
     {kMul, mul, 10},        {kDiv, div, 12},        {kSpec, spec, 10},
     {kShift, shift, 2},     {kMove, move, 1},       {kLda, load, 2},
     {kLd1, load, 2},        {kLd2, load, 2},        {kLd3, load, 2},
     {kLd4, load, 2},        {kLd5, load, 2},        {kLd6, load, 2},
-    {kLdx, load, 2},        {kLdan, loadn, 2},   {kLd1n, loadn, 2},
-    {kLd2n, loadn, 2},   {kLd3n, loadn, 2},   {kLd4n, loadn, 2},
-    {kLd5n, loadn, 2},   {kLd6n, loadn, 2},   {kLdxn, loadn, 2},
+    {kLdx, load, 2},        {kLdan, loadn, 2},      {kLd1n, loadn, 2},
+    {kLd2n, loadn, 2},      {kLd3n, loadn, 2},      {kLd4n, loadn, 2},
+    {kLd5n, loadn, 2},      {kLd6n, loadn, 2},      {kLdxn, loadn, 2},
     {kSta, store, 2},       {kSt1, store, 2},       {kSt2, store, 2},
     {kSt3, store, 2},       {kSt4, store, 2},       {kSt5, store, 2},
     {kSt6, store, 2},       {kStx, store, 2},       {kStj, store, 2},
@@ -1096,8 +1070,8 @@ const std::array<OpDesc, kNumOpCodes> op_table = {{
     {kAddrOpA, addr_op, 1}, {kAddrOp1, addr_op, 1}, {kAddrOp2, addr_op, 1},
     {kAddrOp3, addr_op, 1}, {kAddrOp4, addr_op, 1}, {kAddrOp5, addr_op, 1},
     {kAddrOp6, addr_op, 1}, {kAddrOpX, addr_op, 1}, {kCmpa, compare, 2},
-    {kCmp1, compare, 2},     {kCmp2, compare, 2},     {kCmp3, compare, 2},
-    {kCmp4, compare, 2},     {kCmp5, compare, 2},     {kCmp6, compare, 2},
+    {kCmp1, compare, 2},    {kCmp2, compare, 2},    {kCmp3, compare, 2},
+    {kCmp4, compare, 2},    {kCmp5, compare, 2},    {kCmp6, compare, 2},
     {kCmpx, compare, 2},
 }};
 

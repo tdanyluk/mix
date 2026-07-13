@@ -658,19 +658,19 @@ struct OpDesc {
 };
 
 const std::vector<OpDesc> op_table = {
-    {cycle, 1},      {add, 2},      {sub, 2},      {mul, 10},     {div, 12},
+    {cycle, 1},    {add, 2},      {sub, 2},      {mul, 10},     {div, 12},
     {spec, 10},    {shift, 2},    {move, 1},     {load, 2},     {load, 2},
     {load, 2},     {load, 2},     {load, 2},     {load, 2},     {load, 2},
-    {load, 2},     {loadn, 2}, {loadn, 2}, {loadn, 2}, {loadn, 2},
-    {loadn, 2}, {loadn, 2}, {loadn, 2}, {loadn, 2}, {store, 2},
+    {load, 2},     {loadn, 2},    {loadn, 2},    {loadn, 2},    {loadn, 2},
+    {loadn, 2},    {loadn, 2},    {loadn, 2},    {loadn, 2},    {store, 2},
     {store, 2},    {store, 2},    {store, 2},    {store, 2},    {store, 2},
     {store, 2},    {store, 2},    {store, 2},    {store, 2},    {jbus, 1},
     {ioc, 1},      {in, 1},       {out, 1},      {jred, 1},     {jump, 1},
     {reg_jump, 1}, {reg_jump, 1}, {reg_jump, 1}, {reg_jump, 1}, {reg_jump, 1},
     {reg_jump, 1}, {reg_jump, 1}, {reg_jump, 1}, {addr_op, 1},  {addr_op, 1},
     {addr_op, 1},  {addr_op, 1},  {addr_op, 1},  {addr_op, 1},  {addr_op, 1},
-    {addr_op, 1},  {compare, 2},   {compare, 2},   {compare, 2},   {compare, 2},
-    {compare, 2},   {compare, 2},   {compare, 2},   {compare, 2},
+    {addr_op, 1},  {compare, 2},  {compare, 2},  {compare, 2},  {compare, 2},
+    {compare, 2},  {compare, 2},  {compare, 2},  {compare, 2},
 };
 
 void SimulateMix(State& state) {
