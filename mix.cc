@@ -1243,11 +1243,16 @@ void Parse(std::istream& istream, ParserState& state) {
 int main(int argc, char** argv) {
   if (argc < 2) {
     std::cerr << "usage: mix filename.mixal\n";
-    return 0;
+    return 1;
   }
 
   ParserState parser_state;
   std::ifstream f(argv[1]);
+  if (!f.is_open()) {
+    std::cerr << "error: could not open file " << argv[1] << "\n";
+    return 1;
+  }
+  
   Parse(f, parser_state);
   f.close();
 
@@ -1257,4 +1262,6 @@ int main(int argc, char** argv) {
     state.next_instr = parser_state.start_location;
     SimulateMix(state);
   }
+
+  return 0;
 }
