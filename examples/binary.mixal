@@ -1,0 +1,15 @@
+    ORIG    0
+    ENNA 0
+    STA 103
+    LDX =100000=
+    OUT BUFFER(8) 
+    HLT
+    ORIG 100
+BUFFER CON 1
+    con 2
+    con 1024
+    con -1024
+    con -0
+LITERALS    ORIG 200
+    END 0
+    

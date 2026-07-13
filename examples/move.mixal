@@ -1,0 +1,20 @@
+    ORIG    200
+    ENTA 1
+    STA 0
+    ENT1 1
+    MOVE 0(63)
+    MOVE 63(36)
+*
+    STZ 0
+    ENT1 1
+    MOVE 0(63)
+    MOVE 63(36)
+*
+    LDA 99
+    CHAR
+    STA 100
+    STX 101
+    OUT 100(19)
+    HLT
+    END 200
+    

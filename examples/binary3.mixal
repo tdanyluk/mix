@@ -1,0 +1,17 @@
+    ORIG    0
+    ENNA 0
+    STA 103
+    OUT BUFFER(2) 
+    OUT BUFFER(2) 
+    IOC -1(2)
+    OUT 200(2)
+    IN 200(2)
+    HLT
+    ORIG 100
+BUFFER CON 1
+    con 2
+    con 1024
+    con -1024
+    con -0
+    END 0
+    

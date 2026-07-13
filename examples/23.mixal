@@ -1,0 +1,25 @@
+BUFFER EQU 100
+HI EQU 99
+LO EQU 98
+WORDBITS EQU 97
+ISBINARY EQU 96
+* Bits of a word
+    ORIG    0
+    ENT1 1
+    ENTA 1
+LOOP    MUL =2=
+    STA HI
+    STX LO
+    LDA LO
+    LDX HI
+    JXNZ    LOOPEND
+    INC1 1
+    JMP LOOP
+LOOPEND ST1 WORDBITS
+    ENTA 0,1
+    CHAR
+    STX BUFFER
+    OUT BUFFER(19) 
+    HLT
+    END 0
+    

@@ -1,0 +1,10 @@
+---
+BasedOnStyle: Google
+DerivePointerAlignment: false
+PointerAlignment: Left
+AllowShortEnumsOnASingleLine: true
+ColumnLimit: 80
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortCaseLabelsOnASingleLine: true
+...

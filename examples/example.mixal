@@ -1,0 +1,9 @@
+    ORIG    0
+    LDA TEXT
+    CHAR TEXT
+    STX TEXT
+    OUT TEXT(19)
+    HLT
+TEXT    CON 999
+    END 0
+    

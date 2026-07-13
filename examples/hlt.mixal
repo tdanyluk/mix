@@ -1,0 +1,9 @@
+    ORIG    0
+    LDA 3999
+    ENT1 3999
+    STA 0,1
+    J1NZ 0
+    ORIG 3999
+    HLT
+    END 0
+    

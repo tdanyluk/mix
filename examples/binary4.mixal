@@ -1,0 +1,17 @@
+    ORIG    0
+    IN BUFFER(20)
+    IN BUFFER(20)
+    IOC 0(20)
+    IN BUFFER(20)
+    IN BUFFER(20)
+    IN BUFFER(20)
+    IN BUFFER(20)
+    HLT
+    ORIG 100
+BUFFER CON 1
+    con 2
+    con 1024
+    con -1024
+    con -0
+    END 0
+    
