@@ -305,6 +305,16 @@ int ToAsciiChar(int val) {
   return (val >= 0 && val < 56) ? s[val] : -1;
 }
 
+int ToHexNumber(int val) {
+  if (val >= 30 && val <= 39) {
+    return val - 30;  // 0..9 -> 0..9
+  }
+  if (val >= 1 && val <= 6) {
+    return val + 9;  // A..F -> 10..15
+  }
+  return -1;
+}
+
 int ToMixChar(int c) {
   static const int8_t val[] = {
       0,  -1, -1, 21, 49, -1, -1, 55, 42, 43, 46, 44, 41, 45, 40, 47,
@@ -510,16 +520,69 @@ std::string TrimSpacesOnTheRight(std::string s) {
   return s;
 }
 
+enum WriteState {
+  wsNormal,
+  ws8Bit1,
+  ws8Bit2,
+  ws8Bit2Error,
+};
+
 void out(State& state, Word instr) {
   int device = instr.field();
   int num_words = WordsByDevice(device);
   int begin_addr = get_address(state, instr);
+  WriteState writeState = wsNormal;
+  int char8 = 0;
 
   std::string line;
   line.reserve(num_words * 5);
   for (int i = begin_addr; i < begin_addr + num_words; i++)
     for (int j = 1; j <= 5; j++) {
       int mix_val = state.mem.at(i).byte(j);
+      if (writeState == wsNormal && mix_val == 10) {  // ~
+        writeState = ws8Bit1;
+        continue;
+      }
+      if (writeState == ws8Bit1) {
+        if (mix_val == 10)  // ~
+        {
+          line.push_back('~');
+          writeState = wsNormal;
+          continue;
+        }
+        int c = ToHexNumber(mix_val);
+        if (c == -1) {
+          std::cerr << "Warning: Invalid mix value for hex number " << mix_val
+                    << "\n";
+          char8 = ' ';
+          writeState = ws8Bit2Error;
+        } else {
+          char8 = c << 4;
+          std::cerr << "qqq " << c << "\n";
+          writeState = ws8Bit2;
+        }
+        continue;
+      }
+      if (writeState == ws8Bit2) {
+        int c = ToHexNumber(mix_val);
+        if (c == -1) {
+          std::cerr << "Warning: Invalid mix value for hex number " << mix_val
+                    << "\n";
+          line.push_back(' ');
+        } else {
+          char8 |= c;
+          std::cerr << "qqq " << c << "\n";
+          line.push_back(char8);
+        }
+        writeState = wsNormal;
+        continue;
+      }
+      if (writeState == ws8Bit2Error) {
+        line.push_back(' ');
+        writeState = wsNormal;
+        continue;
+      }
+
       int c = ToAsciiChar(mix_val);
       if (c == -1) {
         std::cerr << "Warning: Mix value " << mix_val

@@ -1,0 +1,21 @@
+* ``HELLO, WORLD'' PROGRAM
+PRINTER EQU  18
+        ORIG 3000
+HELLO   OUT  TEXT(PRINTER)
+        JBUS *(PRINTER)
+        HLT
+TEXT    ALF  "HELLO"
+        ALF  ", WOR"
+        ALF  "LD   "
+*        CON 63
+*        CON 63(1:1),33(2:2),7(3:3),0(4:4),0(5:5)
+        ALF "~3F~3"
+        ALF "F~3DA"
+*
+        ALF "~F0~9"
+        ALF "F~98~"
+        ALF "81~7E"
+*
+        ALF "12 45"
+        ALF "~~   "
+        END  HELLO  

@@ -1,0 +1,35 @@
+        ORIG    3000
+
+START   OUT     QUESTION(18)
+        JBUS    *(18)
+
+        IN      NAME(16)
+        JBUS    *(16)
+
+        ENT1    GREETING
+        INC1    2
+        MOVE    NAME(16)
+
+        OUT     GREETING(18)
+        JBUS    *(18)
+
+        HLT
+
+QUESTION ALF "WHAT "
+        ALF "IS YO"
+        ALF "UR NA"
+        ALF "ME~3F"
+        ORIG    *+20
+
+* CASE_ALF*16 "Hello my \"friend\", how are you?\n" 
+
+GREETING ALF "HELLO"
+        ALF ""
+        ORIG    *+16          Copy destination for the name
+        ALF ".    "
+        ORIG    *+5           Pad to 24 words total
+
+
+NAME    ORIG    *+16
+
+        END     START
