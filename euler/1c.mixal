@@ -1,0 +1,34 @@
+N       EQU     1000
+TERM    EQU     19
+BLOCK   EQU     14
+SUM     CON     0
+OUTPUT  ORIG    *+BLOCK
+
+        ORIG    3000
+START   ENT1    N-1     R1=N-1
+
+LOOP    ENTA    0
+        ENTX    0,1
+        DIV     =5=
+        JXZ     GOOD
+
+        ENTA    0
+        ENTX    0,1
+        DIV     =3=
+        JXNZ    NEXT
+
+GOOD    LDA     SUM
+        INCA    0,1
+        STA     SUM
+
+NEXT    DEC1    1
+        J1P     LOOP
+
+PRINT   LDA     SUM
+        CHAR
+        STA     OUTPUT
+        STX     OUTPUT+1
+        OUT     OUTPUT(TERM)
+
+        HLT
+        END     START

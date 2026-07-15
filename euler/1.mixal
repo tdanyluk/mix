@@ -1,0 +1,47 @@
+N       CON     1000
+ZERO    CON     0
+ONE     CON     1
+THREE   CON     3
+FIVE    CON     5
+SUM     CON     0
+OUTPUT  CON     0
+        CON     0
+
+        ORIG    3000
+
+START   LDA     N
+        SUB     ONE
+        STA     N
+
+LOOP    LDA     ZERO
+        LDX     N
+        DIV     FIVE
+        CMPX    ZERO
+        JE      GOOD
+    
+        LDA     ZERO
+        LDX     N
+        DIV     THREE
+        CMPX    ZERO
+        JE      GOOD
+
+        JMP     NEXT
+
+GOOD    LDA     SUM
+        ADD     N
+        STA     SUM
+
+NEXT    LDA     N
+        SUB     ONE
+        STA     N
+        CMPA    ZERO
+        JG      LOOP
+
+PRINT   LDA     SUM
+        CHAR
+        STA     OUTPUT
+        STX     OUTPUT+1
+        OUT     OUTPUT(19)
+
+        HLT
+        END     START

@@ -1,0 +1,98 @@
+*a = 600_851_475_143
+*i = 2
+*max_oszto = 1
+*while i <= a:
+*    if a % i == 0:
+*        max_oszto = i
+*        a = a//i
+*    i = i + 1
+*print(max_oszto)
+
+
+TERM    EQU     19
+BLOCK   EQU     14
+
+A       CON       2
+MUL1    CON       1000000000
+ADD1    CON        000000325
+*A       CON     600
+*MUL1    CON       1000000000
+*ADD1    CON        851475143
+
+X       CON     0
+I       CON     2
+MAXDIV  CON     0
+REM     CON     0
+AA      CON     0
+XX      CON     0
+
+BUF     ORIG    *+BLOCK
+ERRBUF  ALF     "FACTO"
+        ALF     "R TOO"
+        ALF     " BIG."
+        ORIG    *+BLOCK-3
+
+        ORIG    3000
+START   LDA     A
+        MUL     MUL1
+        STA     A
+        STX     X
+        LDA     X
+        ADD     ADD1
+        STA     X
+        JNOV    LOOP
+        LDA     A
+        INCA    1
+        STA     A
+LOOP    LDA     A
+        CMPA    =0=
+        JG      INLOOP
+        LDX     X
+        CMPX    I
+        JGE     INLOOP
+        JMP     ENDLOOP
+INLOOP  LDA     =0=
+        LDX     A
+        DIV     I
+        STA     AA
+        STX     REM
+        LDA     REM
+        LDX     X
+        DIV     I
+        STA     XX
+        CMPX    =0=
+        JNE     NOTDIV
+        LDA     AA
+        STA     A
+        LDA     XX
+        STA     X
+        LDA     I
+        STA     MAXDIV
+NOTDIV  LDA     I
+        INCA    1
+        JOV     ERROR
+        STA     I
+
+*        ENTA    0
+*        LDX     I
+*        DIV     =1000=
+*        CMPX    =0=
+*        JNE     LOOP
+*        LDA     I
+*        CHAR
+*        STA    BUF
+*        STX    BUF+1
+*        OUT    BUF(TERM)
+
+        JMP     LOOP
+
+ENDLOOP LDA    MAXDIV
+        CHAR
+        STA    BUF
+        STX    BUF+1
+        OUT    BUF(TERM)
+        HLT
+
+ERROR   OUT    ERRBUF(TERM)
+        HLT
+        END     START

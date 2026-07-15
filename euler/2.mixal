@@ -1,0 +1,50 @@
+* prev = 1
+* current = 1
+* sum = 0
+* while current <= 4000000:
+*    if current % 2 == 0:
+*        sum = sum + current
+*    next = current + prev
+*    prev = current
+*    current = next
+* print(sum)
+
+TERM    EQU     19
+BLOCK   EQU     14
+
+PREV    CON     1
+CURR    CON     1
+NEXT    CON     0
+SUM     CON     0
+LIMIT   CON     4000000
+
+BUF     ORIG    *+BLOCK
+
+        ORIG    3000
+START   LDA    CURR     
+        JAO    INCR
+
+ADD     ADD    SUM
+        STA    SUM
+
+INCR    LDA    CURR
+        ADD    PREV
+        STA    NEXT
+
+        LDA    CURR
+        STA    PREV
+
+        LDA    NEXT
+        STA    CURR
+
+        CMPA   LIMIT
+        JLE    START
+        
+        LDA    SUM
+        CHAR
+        STA    BUF
+        STX    BUF+1
+        OUT    BUF(TERM)
+
+        HLT
+        END     START

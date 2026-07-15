@@ -1,0 +1,34 @@
+TERM    EQU     19
+BLOCK   EQU     14
+
+LIMIT    CON     1000
+OUTPUT  ORIG    *+BLOCK
+
+        ORIG    3000
+START   ENTA    0
+        
+        ENT1    0
+1H      INCA    0,1
+        INC1    3
+        CMP1    LIMIT
+        JL      1B
+        
+        ENT1    0
+1H      INCA    0,1
+        INC1    5
+        CMP1    LIMIT
+        JL      1B
+
+        ENT1    0
+1H      DECA    0,1
+        INC1    15
+        CMP1    LIMIT
+        JL      1B
+
+        CHAR
+        STA     OUTPUT
+        STX     OUTPUT+1
+        OUT     OUTPUT(TERM)
+
+        HLT
+        END     START

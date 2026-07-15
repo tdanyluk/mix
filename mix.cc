@@ -217,7 +217,7 @@ DivRemOverflow div(Word high, Word low, Word divisor) {
     return {Word(-0xbeef), Word(-0xbeef), true};
   int64_t abs = (int64_t(high.abs()) << 30) | low.abs();
   int64_t div_abs = abs / divisor.abs();
-  if (div_abs & ~Word::kAbsMask)
+  if (div_abs & ~int64_t(Word::kAbsMask))
     return {Word(-0xbeef), Word(-0xbeef), true};
   int64_t rem_abs = abs % divisor.abs();
   return {Word(high.sign() * divisor.sign(), div_abs),
@@ -788,9 +788,6 @@ Word ParseAlf(std::stringstream& stream) {
 
   if (!std::isspace(stream.get()))
     throw MixException("Whitespace expected after ALF");
-
-  if (std::isspace(stream.peek()))
-    stream.ignore();
 
   // This is a GNU extension:
   bool quoted = false;

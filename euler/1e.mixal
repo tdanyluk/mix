@@ -1,0 +1,43 @@
+TERM    EQU     19
+BLOCK   EQU     14
+
+LIMIT    CON     1000
+OUTPUT  ORIG    *+BLOCK
+
+B1     INC2    5
+A2     DECA    0,2
+B2     INC2    15
+
+        ORIG    3000
+START   ENT3    0       table counter
+        ENTA    0       sum
+
+LOOP    ENT2    0
+A       INCA    0,2
+B       INC2    3
+        CMP2    LIMIT
+        JL      A
+
+        INC3    1
+TABLE   JMP     TABLE,3
+        JMP     MOD1
+        JMP     MOD2
+        JMP     PRINT
+
+MOD1    ENT1    B
+        MOVE    B1
+        JMP     LOOP
+
+MOD2    ENT1    A
+        MOVE    A2
+        ENT1    B
+        MOVE    B2
+        JMP     LOOP
+
+PRINT   CHAR
+        STA     OUTPUT
+        STX     OUTPUT+1
+        OUT     OUTPUT(TERM)
+
+        HLT
+        END     START

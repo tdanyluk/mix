@@ -1,0 +1,36 @@
+N       EQU     1000
+THREE   CON     3
+FIVE    CON     5
+SUM     CON     0
+
+OUTPUT  CON     0
+
+        ORIG    3000
+
+START   ENT1    N-1     R1=N-1
+
+LOOP    ENTA    0
+        ENTX    0,1
+        DIV     FIVE
+        JXZ     GOOD
+
+        ENTA    0
+        ENTX    0,1
+        DIV     THREE
+        JXNZ    NEXT
+
+GOOD    ENTA    0,1
+        ADD     SUM
+        STA     SUM
+
+NEXT    DEC1    1
+        J1P     LOOP
+
+PRINT   LDA     SUM
+        CHAR
+        STA     OUTPUT
+        STX     OUTPUT+1
+        OUT     OUTPUT(19)
+
+        HLT
+        END     START
