@@ -1,0 +1,37 @@
+TERM    EQU     19
+BLOCK   EQU     14
+
+MAGIC   ALF     "MIX26"
+
+BUF     ALF     "DETEC"
+        ALF     "TED  "
+        ALF     "     "
+        ALF     "     "
+        ORIG    BUF+BLOCK
+
+UNSUPPBUF     ALF     "MIX26"
+        ALF     " MACH"
+        ALF     "INE R"
+        ALF     "EQUIR"
+        ALF     "ED   "
+        ORIG    UNSUPPBUF+BLOCK
+
+
+        ORIG    3000
+START   DIV     =0=
+        JOV     *+1
+        CMPA    MAGIC 
+        JNE     UNSUPP
+        STA     BUF+2
+        STX     BUF+3
+        OUT    BUF(TERM)
+        JBUS   *(TERM)
+        HLT
+
+UNSUPP  OUT    UNSUPPBUF(TERM)
+        JBUS   *(TERM)
+
+        HLT
+        END     START
+
+

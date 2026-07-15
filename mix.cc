@@ -214,7 +214,8 @@ HighLow mul(Word a, Word b) {
 
 DivRemOverflow div(Word high, Word low, Word divisor) {
   if (divisor.abs() == 0)
-    return {Word(-0xbeef), Word(-0xbeef), true};
+    // MIX26 V1
+    return {Word(1, 14, 9, 27, 32, 36), Word(1, 0, 0, 0, 25, 31), true};
   int64_t abs = (int64_t(high.abs()) << 30) | low.abs();
   int64_t div_abs = abs / divisor.abs();
   if (div_abs & ~int64_t(Word::kAbsMask))
@@ -709,7 +710,11 @@ struct ParserState {
 };
 
 std::string RemainingString(std::stringstream& stream) {
-  return stream.str().substr(stream.tellg());
+  if (!stream.eof() && !stream.fail()) {
+    return stream.str().substr(stream.tellg());
+  } else {
+    return "";
+  }
 }
 
 bool IsSpaceOrEof(int c) { return std::isspace(c) || c == EOF; }
