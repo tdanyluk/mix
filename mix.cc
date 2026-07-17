@@ -10,6 +10,8 @@ static_assert(sizeof(int) >= 4, "This code requires at least 32 bit int.");
 #include <cstring>
 #include <exception>
 #include <fstream>
+#include <functional>
+#include <iomanip>
 #include <iostream>
 #include <sstream>
 #include <string>
@@ -54,8 +56,8 @@ enum FieldValues {
   /* RegJump:    */ kJnField = 0, kJzField, kJpField, kJnnField, kJnzField,
                     kJnpField, kJevenField, kJoddField,
   /* AddrOp:     */ kIncField = 0, kDecField, kEntField, kEnnField,
-  /* Devices:    */ kCardReaderField = 16, kCardPunchField, kLinePrinterField,
-                    KTerminalField
+  /* Devices:    */ kCardReaderField = 16, kCardPunchField=17, kLinePrinterField=18,
+                    KTerminalField=19, kSysCallFieldEx=21
 };
 
 enum BlockSizes { bsCard = 16, bsLinePrinter = 24, bsTerminal = 14 };
@@ -345,7 +347,21 @@ struct State {
   int64_t time = 0;
   std::vector<Word> mem = std::vector<Word>(4000);
   bool halt = false;
+
+  struct StateEx {
+    std::unordered_map<std::string, std::function<void(State&)>> syscalls;
+    // 0..2 reserved for stdin, stdout, stderr
+    std::unordered_map<int, FILE*> file_ptrs;
+  } ex;
 };
+
+char CmpToChar(int cmp_result) {
+  if (cmp_result < 0)
+    return 'L';
+  if (cmp_result == 0)
+    return 'E';
+  return 'G';
+}
 
 int get_m(const State& state, Word instr) {
   int addr = instr.address();
@@ -488,7 +504,30 @@ void store(State& state, Word instr) {
   store_to_mem_operand_part(state, instr, state.registers.at(reg_index));
 }
 
+std::string WordToAscii(Word word, bool skipWs = false) {
+  std::string ascii;
+  ascii.reserve(5);
+  for (int j = 1; j <= 5; j++) {
+    int mix_val = word.byte(j);
+    int c = ToAsciiChar(mix_val);
+    if (c == -1)
+      throw MixException("Couldn't convert to Ascii: ", mix_val);
+    if (skipWs && c == ' ')
+      continue;
+    ascii.push_back(c);
+  }
+  return ascii;
+}
+
 void ioc(State& state, Word instr) {
+  if (instr.field() == kSysCallFieldEx) {
+    int m = get_m(state, instr);
+    std::string name = WordToAscii(state.mem.at(m), /*skipWs=*/true);
+    if (!state.ex.syscalls.count(name))
+      throw MixException("Syscall not found: ", name);
+    state.ex.syscalls[name](state);
+    return;
+  }
   if (instr.field() != kLinePrinterField)
     throw MixException("IOC is only supported for the line printer (=nop).");
   int m = get_m(state, instr);
@@ -742,6 +781,11 @@ bool IsNumber(const std::string& s) {
 
 std::string ToUpper(std::string s) {
   std::for_each(s.begin(), s.end(), [](char& c) { c = std::toupper(c); });
+  return s;
+}
+
+std::string ToLower(std::string s) {
+  std::for_each(s.begin(), s.end(), [](char& c) { c = std::tolower(c); });
   return s;
 }
 
@@ -1242,6 +1286,208 @@ void Parse(std::istream& istream, ParserState& state) {
   }
 }
 
+// ---- Syscall ----
+
+Word CCharToWord(char c) { return Word(uint8_t(c)); }
+
+char WordToCChar(Word w) {
+  if (w.value() < 0 || w.value() > 255) {
+    throw MixException("C Byte outside range.");
+  }
+  return char(uint8_t(w.value()));
+}
+
+void AddBasicSyscalls(int argc, char** argv, State& state) {
+  // DUMPR: ()->()
+  // Debug: Dump registers.
+  state.ex.syscalls["DUMPR"] = [argc, argv](State& state) {
+    std::cout << "rA: " << state.rA() << "\n";
+    std::cout << "rX: " << state.rX() << "\n";
+    std::cout << "rI1: " << state.rI(1) << "\n";
+    std::cout << "rI2: " << state.rI(2) << "\n";
+    std::cout << "rI3: " << state.rI(3) << "\n";
+    std::cout << "rI4: " << state.rI(4) << "\n";
+    std::cout << "rI5: " << state.rI(5) << "\n";
+    std::cout << "rI6: " << state.rI(6) << "\n";
+    std::cout << "rJ: " << state.rJ() << "\n";
+    std::cout << "OV: " << (state.overflow ? 1 : 0) << "\n";
+    std::cout << "CMP: " << CmpToChar(state.cmp_result) << "\n";
+  };
+
+  // DUMPM: (A: buf, X: bufSize)->()
+  // Debug: Dump buffer as numbers and ASCII characters.
+  state.ex.syscalls["DUMPM"] = [argc, argv](State& state) {
+    int buf = state.rA().value();
+    int bufSize = state.rX().value();
+
+    for (int i = 0; i < bufSize && buf + i < state.mem.size(); ++i) {
+      Word w = state.mem.at(buf + i);
+      std::cout << "mem[" << (buf + i) << "]=" << std::setw(3) << w << " ";
+      int val = w.value();
+      if (val >= 0 && val <= 255 && isgraph(val)) {
+        std::cout << char(uint8_t(val));
+      } else if (val == ' ') {
+        std::cout << " ";
+      } else if (val == '\n') {
+        std::cout << "\\n";
+      } else if (val == '\r') {
+        std::cout << "\\r";
+      } else if (val == '\t') {
+        std::cout << "\\t";
+      } else {
+        std::cout << " ??";
+      }
+      std::cout << "\n";
+    }
+  };
+
+  // DUMPS: (A: buf, X: bufSize)->()
+  // Debug: Dump buffer as a string.
+  state.ex.syscalls["DUMPS"] = [argc, argv](State& state) {
+    int buf = state.rA().value();
+    int bufSize = state.rX().value();
+
+    std::cout << '\"';
+    for (int i = 0; i < bufSize && buf + i < state.mem.size(); ++i) {
+      Word w = state.mem.at(buf + i);
+      int val = w.value();
+      if (val >= 0 && val <= 255 && isgraph(val) && val != '"' && val != '\\') {
+        std::cout << char(uint8_t(val));
+      } else if (val == ' ') {
+        std::cout << " ";
+      } else if (val == '"') {
+        std::cout << "\\\"";
+      } else if (val == '\\') {
+        std::cout << "\\\\";
+      } else if (val == '\n') {
+        std::cout << "\\n";
+      } else if (val == '\r') {
+        std::cout << "\\r";
+      } else if (val == '\t') {
+        std::cout << "\\t";
+      } else {
+        std::cout << "?";
+      }
+    }
+    std::cout << "\"\n";
+  };
+
+  // ARGC: ()->(A: argc)
+  state.ex.syscalls["ARGC"] = [argc](State& state) {
+    state.rA() = Word(argc - 1);
+  };
+
+  // ARGV: (A: buf, X: bufSize, I1:argIndex)->(A: wordsWrittenToBuf)
+  // Stores each C byte in a MIX word.
+  state.ex.syscalls["ARGV"] = [argc, argv](State& state) {
+    int buf = state.rA().value();
+    int bufSize = state.rX().value();
+    int argIndex = state.rI(1).value();
+
+    if (argIndex < 0 || argIndex >= (argc - 1)) {
+      throw MixException("Invalid argument number: ", argIndex,
+                         ", allowed range: [0..", argc - 2, "]");
+    }
+
+    int length = strlen(argv[argIndex + 1]);
+    for (int i = 0; i < length && i < bufSize && buf + i < state.mem.size();
+         i++) {
+      state.mem.at(buf + i) = CCharToWord(argv[argIndex + 1][i]);
+    }
+    state.rA() = Word(length);
+  };
+
+  // FOPEN: (A: nameBuf, X: nameSize, I1:modeStringLoc)->(A: fileIndex or -1)
+  // Mode string is a MIX string
+  state.ex.syscalls["FOPEN"] = [argc, argv](State& state) {
+    int nameBuf = state.rA().value();
+    int nameSize = state.rX().value();
+    int modeStringLoc = state.rI(1).value();
+
+    if (modeStringLoc < 0 || modeStringLoc >= state.mem.size())
+      throw MixException("Invalid mode string location");
+    std::string mode =
+        ToLower(WordToAscii(state.mem.at(modeStringLoc), /*skipWs=*/true));
+
+    std::string name;
+    name.reserve(nameSize);
+    if (nameBuf + nameSize >= state.mem.size())
+      throw MixException("Name buffer extends outside of memory");
+    for (int i = 0; i < nameSize; i++)
+      name.push_back(WordToCChar(state.mem.at(nameBuf + i)));
+
+    FILE* f = fopen(name.c_str(), mode.c_str());
+    if (f == nullptr) {
+      state.rA() = Word(-1);
+      return;
+    }
+
+    constexpr int maxIndex = 4000;
+    int i;
+    for (i = 3; i < maxIndex; i++) {
+      if (!state.ex.file_ptrs.count(i)) {
+        break;
+      }
+    }
+    if (i >= maxIndex)
+      throw MixException("Too many files are open.");
+
+    state.ex.file_ptrs[i] = f;
+    state.rA() = Word(i);
+  };
+
+  // FREAD: (A: buf, X: size, I1:fileIndex)->(A: wordsWrittenToBuf)
+  // Stores each C byte in a MIX word.
+  // if wordsWrittenToBuf < size then it is either an error or EOF.
+  // We can use FERRO to check if it's an error.
+  state.ex.syscalls["FREAD"] = [argc, argv](State& state) {
+    int buf = state.rA().value();
+    int size = state.rX().value();
+    int fileno = state.rI(1).value();
+
+    if (!state.ex.file_ptrs.count(fileno))
+      throw MixException("File number not found: ", fileno);
+    FILE* f = state.ex.file_ptrs[fileno];
+
+    // TODO: not allocate all the time.
+    std::vector<char> cBuf(size, 0);
+    int result = fread(cBuf.data(), 1, size, f);
+
+    for (int i = 0; i < result && buf + i < state.mem.size(); i++) {
+      state.mem.at(buf + i) = CCharToWord(cBuf[i]);
+    }
+
+    state.rA() = Word(result);
+  };
+
+  // FERRO: (I1:fileIndex)->(A: 0 or error)
+  state.ex.syscalls["FERRO"] = [argc, argv](State& state) {
+    int fileno = state.rI(1).value();
+
+    if (!state.ex.file_ptrs.count(fileno))
+      throw MixException("File number not found: ", fileno);
+    FILE* f = state.ex.file_ptrs[fileno];
+
+    int result = ferror(f);
+    if (result < -Word::kAbsMask || result > Word::kAbsMask)
+      result = -1;
+
+    state.rA() = Word(result);
+  };
+
+  // FCLOS: (I1:fileIndex)->(A: 0 or error)
+  state.ex.syscalls["FCLOS"] = [argc, argv](State& state) {
+    int fileno = state.rI(1).value();
+
+    if (!state.ex.file_ptrs.count(fileno))
+      throw MixException("File number not found: ", fileno);
+
+    int result = fclose(state.ex.file_ptrs[fileno]);
+    state.ex.file_ptrs.erase(fileno);
+    state.rA() = Word(result);
+  };
+}
+
 int main(int argc, char** argv) {
   if (argc < 2) {
     std::cerr << "usage: mix filename.mixal\n";
@@ -1254,7 +1500,7 @@ int main(int argc, char** argv) {
     std::cerr << "error: could not open file " << argv[1] << "\n";
     return 1;
   }
-  
+
   Parse(f, parser_state);
   f.close();
 
@@ -1262,6 +1508,7 @@ int main(int argc, char** argv) {
     State state;
     state.mem = std::move(parser_state.mem);
     state.next_instr = parser_state.start_location;
+    AddBasicSyscalls(argc, argv, state);
     SimulateMix(state);
   }
 

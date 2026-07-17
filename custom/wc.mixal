@@ -1,0 +1,208 @@
+TERM    EQU     19
+BLOCK   EQU     14
+SYS     EQU     21
+
+*DUMPR  ALF     "DUMPR"
+*DUMPM  ALF     "DUMPM"
+*DUMPS  ALF     "DUMPS"
+ARGC    ALF     "ARGC "
+ARGV    ALF     "ARGV "
+FOPEN   ALF     "FOPEN"
+FREAD   ALF     "FREAD"
+FERRO   ALF     "FERRO"
+FCLOS   ALF     "FCLOS"
+
+MAGIC   ALF     "MIX26"
+        ALF     " REQU"
+        ALF     "IRED "
+        ORIG    MAGIC+BLOCK
+
+BADARGCBUF ALF     "1 ARG"
+        ALF     " REQU"
+        ALF     "IRED "
+        ORIG    BADARGCBUF+BLOCK
+
+EMPTYARGB ALF     "ERROR"
+        ALF     ": EMP"
+        ALF     "TY AR"
+        ALF     "G    "
+        ORIG    EMPTYARGB+BLOCK
+
+LONGARGBUF ALF     "ERROR"
+        ALF     ": ARG"
+        ALF     " TOO "
+        ALF     "LONG."
+        ALF     " MAX="
+        ALF     "128  "
+        ORIG    LONGARGBUF+BLOCK
+
+FILEERRBUF ALF     "FILE "
+        ALF     "ERROR"
+        ORIG    FILEERRBUF+BLOCK
+
+FLONGBUF ALF     "FILE "
+        ALF     "TOO L"
+        ALF     "ONG  "
+        ORIG    FLONGBUF+BLOCK
+
+HEADBUF ALF     "     "
+        ALF     "LINES"
+        ALF     "     "
+        ALF     "     "
+        ALF     "WORDS"
+        ALF     "     "
+        ALF     "     "
+        ALF     "BYTES"
+        ORIG    HEADBUF+BLOCK
+
+RESBUF  CON     0
+        CON     0
+        ALF     "     "
+        CON     0
+        CON     0
+        ALF     "     "
+        CON     0
+        CON     0
+        ORIG    RESBUF+BLOCK
+
+FILEBS  EQU     1024
+READCNT CON     0
+FILEBUF ORIG    *+FILEBS
+
+ARGBS   EQU     128
+ARGSIZ  CON     0
+ARGBUF  ORIG    ARGBUF+ARGBS
+
+READMODE ALF     "   RB"
+FILENO  CON     0
+
+LINES   CON     0
+WORDS   CON     0
+SUMLEN  CON     0
+WASWS   CON     1
+
+        ORIG    3000
+START   DIV     =0=
+        JOV     *+1
+        CMPA    MAGIC
+        JNE     UNSUPP
+
+        IOC     ARGC(SYS)
+        CMPA    =2=
+        JNE     BADARGC
+
+        ENTA    ARGBUF
+        ENTX    ARGBS
+        ENT1    1
+        IOC     ARGV(SYS)
+        CMPA    =0=
+        JLE     EMPTYARG
+        CMPA    =ARGBS=
+        JG      LONGARG
+        STA     ARGSIZ
+
+*       ENTA    ARGBUF
+*       LDX     ARGSIZ
+*       IOC     DUMPS(SYS)
+
+        ENTA    ARGBUF
+        LDX     ARGSIZ
+        ENT1    READMODE
+        IOC     FOPEN(SYS)
+        CMPA    =0=
+        JL      FILEERR
+        STA     FILENO
+
+READ    ENTA    FILEBUF
+        ENTX    FILEBS
+        LD1     FILENO
+        IOC     FREAD(SYS)
+        STA     READCNT
+        IOC     FERRO(SYS)
+        CMPA    =0=
+        JNE     FILEERR
+
+*       ENTA    FILEBUF
+*       ENTX    80
+*       IOC     DUMPS(SYS)
+
+        LDA     READCNT
+        CMPA    =0=
+        JE      CLOSE
+
+        LDA     SUMLEN
+        ADD     READCNT
+        JOV     FILELONG
+        STA     SUMLEN
+
+        ENT1    0
+ITER    LDA     FILEBUF,1
+
+CNTL    CMPA    =10=    '\n'
+        JNE     CNTW
+        LDX     LINES
+        INCX    1
+        STX     LINES
+
+CNTW    LD2     WASWS
+        CMPA    =9=     ws: 9..13,32
+        JL      NOTWS
+        CMPA    =14=
+        JL      ISWS
+        CMPA    =32=
+        JE      ISWS
+NOTWS   ENT3    0
+        JMP     AFTERWS
+ISWS    ENT3    1
+AFTERWS J3P     SETWS
+        J2Z     SETWS
+        LDX     WORDS
+        INCX    1
+        STX     WORDS
+SETWS   ST3     WASWS
+
+NEXT    INC1    1
+        CMP1    READCNT
+        JL      ITER
+
+        ENTA    FILEBS
+        CMPA    READCNT
+        JE      READ
+
+CLOSE   LD1     FILENO
+        IOC     FCLOS(SYS)
+        CMPA    =0=
+        JNE     FILEERR
+
+        LDA     LINES
+        CHAR
+        STA     RESBUF
+        STX     RESBUF+1
+        LDA     WORDS
+        CHAR
+        STA     RESBUF+3
+        STX     RESBUF+4
+        LDA     SUMLEN
+        CHAR
+        STA     RESBUF+6
+        STX     RESBUF+7
+        OUT     HEADBUF(TERM)
+        OUT     RESBUF(TERM)
+
+        HLT
+
+UNSUPP  OUT     MAGIC(TERM)
+        JBUS    *(TERM)
+        HLT
+BADARGC OUT     BADARGCBUF(TERM)
+        HLT
+LONGARG OUT     LONGARGBUF(TERM)
+        HLT
+EMPTYARG OUT     EMPTYARGB(TERM)
+        HLT
+FILEERR OUT     FILEERRBUF(TERM)
+        HLT
+FILELONG OUT     FLONGBUF(TERM)
+        HLT
+
+        END     START
