@@ -101,7 +101,7 @@ struct Word {
   Word() = default;
 
   explicit Word(int value) {
-    if (value <= -kAbsMask || value >= kAbsMask)
+    if (value < -kAbsMask || value > kAbsMask)
       throw MixException("Value outside range of Word: ", value);
     data = value < 0 ? (kSignBit | -value) : value;
   }
@@ -338,7 +338,7 @@ struct State {
 
   std::vector<Word> registers = std::vector<Word>(10);
   int next_instr = 0;
-  //<0: lt, =0: eq, >0: gt
+  // <0: lt, =0: eq, >0: gt
   int cmp_result = 0;
   bool overflow = false;
   int64_t time = 0;
