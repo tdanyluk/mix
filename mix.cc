@@ -195,6 +195,11 @@ struct Word {
   int data = 0;
 };
 
+Word ToWordOr(int value, int orValue) {
+  return (value >= -Word::kAbsMask && value <= Word::kAbsMask) ? Word(value)
+                                                               : Word(orValue);
+}
+
 const Word kNegZero(-1, 0);
 
 std::ostream& operator<<(std::ostream& out, const Word& word) {
@@ -361,6 +366,8 @@ struct State {
     std::unordered_map<int, FILE*> file_ptrs;
     std::unique_ptr<Window> window;
     std::unique_ptr<Surface> surface;
+    bool show_frame_time = false;
+    int64_t last_update_ms = 0;
   } ex;
 };
 
@@ -1552,7 +1559,7 @@ struct KeyPress {
   // Use this if the key label matters
   SDL_Keycode keycode = SDLK_UNKNOWN;
   // Use this if the key location matters
-  // For example, you want they keys at the location of the WASD keys
+  // For example, you want the keys at the location of the WASD keys
   // on the US keyboard, and the label doesn't matter.
   SDL_Scancode scancode = SDL_SCANCODE_UNKNOWN;
 };
@@ -1631,6 +1638,7 @@ void Window::set_fullscreen(bool full_screen) {
       window_, full_screen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0));
 }
 
+// TODO: Consider: first fill the buffer and then open the window.
 void AddGraphicsSyscalls(State& state) {
   state.ex.syscalls["INITG"] = [](State& state) {
     int w = state.rA().value();
@@ -1645,10 +1653,29 @@ void AddGraphicsSyscalls(State& state) {
     state.ex.surface = std::make_unique<Surface>(w, h);
     std::fill(state.ex.surface->pixels.begin(), state.ex.surface->pixels.end(),
               0xffffffffu);
+    state.ex.last_update_ms = SDL_GetTicks();
   };
 
   state.ex.syscalls["UPDAG"] = [](State& state) {
     state.ex.window->Update(*state.ex.surface);
+    int64_t time_ms = SDL_GetTicks();
+    if (state.ex.show_frame_time) {
+      if (time_ms >= state.ex.last_update_ms) {
+        int64_t diff_ms = time_ms - state.ex.last_update_ms;
+        std::ostringstream formatted;
+        formatted << std::fixed << std::setprecision(2);
+        formatted << "Frame: " << diff_ms << " ms";
+        if (diff_ms > 1000) {
+          formatted << " " << (diff_ms / 1000.0f) << " spf";
+        } else {
+          formatted << " " << (1000.0f / diff_ms) << " fps";
+        }
+        std::cout << formatted.str() << std::endl;
+      } else {
+        std::cout << "Frame time could not be calculated.\n";
+      }
+    }
+    state.ex.last_update_ms = time_ms;
   };
 
   state.ex.syscalls["SETPX"] = [](State& state) {
@@ -1657,6 +1684,60 @@ void AddGraphicsSyscalls(State& state) {
     int y = state.rI(2).value();
     Surface& surface = *state.ex.surface;
     surface.pixels[y * surface.w + x] = color;
+  };
+
+  state.ex.syscalls["WAITK"] = [](State& state) {
+    KeyPress k;
+
+    SDL_Event e;
+    while (
+        !(SDL_WaitEvent(&e) && (e.type == SDL_QUIT || e.type == SDL_KEYDOWN)))
+      ;
+    if (e.type == SDL_QUIT) {
+      k.should_quit = true;
+    } else {
+      k.should_quit = false;
+      k.is_repeat = (e.key.repeat != 0);
+      k.keycode = e.key.keysym.sym;
+      k.scancode = e.key.keysym.scancode;
+    };
+
+    state.rA() = ToWordOr(k.keycode, 0);
+    state.rX() = Word(k.scancode);
+    state.rI(1) = Word(k.is_repeat);
+    state.rI(2) = Word(k.should_quit);
+  };
+
+  state.ex.syscalls["POLLK"] = [](State& state) {
+    KeyPress k;
+    bool has_key = false;
+    SDL_Event e;
+    while (SDL_PollEvent(&e)) {
+      switch (e.type) {
+        case SDL_QUIT:
+          has_key = true;
+          k.should_quit = true;
+          break;
+        case SDL_KEYDOWN:
+          has_key = true;
+          k.should_quit = false;
+          k.is_repeat = (e.key.repeat != 0);
+          k.keycode = e.key.keysym.sym;
+          k.scancode = e.key.keysym.scancode;
+          break;
+        default:;
+      }
+    };
+
+    state.rA() = ToWordOr(k.keycode, 0);
+    state.rX() = Word(k.scancode);
+    state.rI(1) = Word(k.is_repeat);
+    state.rI(2) = Word(k.should_quit);
+    state.rI(3) = Word(has_key);
+  };
+
+  state.ex.syscalls["FRAMT"] = [](State& state) {
+    state.ex.show_frame_time = (state.rA().value() != 0);
   };
 
   state.ex.syscalls["CLOSG"] = [](State& state) {
