@@ -13,6 +13,8 @@ static_assert(sizeof(int) >= 4, "This code requires at least 32 bit int.");
 #include <functional>
 #include <iomanip>
 #include <iostream>
+#include <memory>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <tuple>
@@ -20,6 +22,8 @@ static_assert(sizeof(int) >= 4, "This code requires at least 32 bit int.");
 #include <utility>
 #include <variant>
 #include <vector>
+
+#include "SDL.h"
 
 template <typename... Args>
 std::string Format(const Args&... args) {
@@ -320,6 +324,9 @@ int ToMixChar(int c) {
   return c >= 32 && c < 128 ? val[c - 32] : -1;
 }
 
+class Window;
+struct Surface;
+
 struct State {
   Word& rA() { return registers[0]; }
   Word rA() const { return registers[0]; }
@@ -352,6 +359,8 @@ struct State {
     std::unordered_map<std::string, std::function<void(State&)>> syscalls;
     // 0..2 reserved for stdin, stdout, stderr
     std::unordered_map<int, FILE*> file_ptrs;
+    std::unique_ptr<Window> window;
+    std::unique_ptr<Surface> surface;
   } ex;
 };
 
@@ -1024,8 +1033,8 @@ FutureRef ParseLiteralConstant(std::stringstream& stream) {
     s.push_back(c);
   }
   s.push_back('=');
-  if (s.size() > 12)
-    throw MixException("Literal constant too long: ", s);
+  // if (s.size() > 12)
+  //   throw MixException("Literal constant too long: ", s);
   return s;
 }
 
@@ -1488,6 +1497,175 @@ void AddBasicSyscalls(int argc, char** argv, State& state) {
   };
 }
 
+// ---- Graphics ----
+
+#define BGI_DIE(...)                  \
+  do {                                \
+    fprintf(stderr, "Fatal error: "); \
+    fprintf(stderr, __VA_ARGS__);     \
+    fprintf(stderr, "\n");            \
+    fflush(stderr);                   \
+    std::exit(1);                     \
+  } while (false)
+
+#define BGI_WARN(...)             \
+  do {                            \
+    fprintf(stderr, __VA_ARGS__); \
+    fprintf(stderr, "\n");        \
+    fflush(stderr);               \
+  } while (false)
+
+#define BGI_SDL_CHECK_ZERO(expr) \
+  if ((expr) != 0)               \
+  BGI_DIE("%s: %s", #expr, SDL_GetError())
+
+#define BGI_SDL_CHECK_PTR(expr) \
+  if ((expr) == nullptr)        \
+  BGI_DIE("%s: %s", #expr, SDL_GetError())
+
+#define BGI_WARN_FALSE(expr) \
+  if (!(expr))               \
+  BGI_WARN("Warning: %s failed", #expr)
+
+using Color = uint32_t;
+struct Surface {
+  Surface() {}
+
+  Surface(int w, int h) : pixels(w * h), w(w), h(h) {}
+
+  std::vector<uint32_t> pixels;
+  int w = 0;
+  int h = 0;
+};
+
+class NonCopyable {
+ public:
+  NonCopyable() = default;
+  virtual ~NonCopyable() = default;
+  NonCopyable(const NonCopyable&) = delete;
+  NonCopyable& operator=(const NonCopyable&) = delete;
+};
+
+struct KeyPress {
+  bool should_quit = false;
+  bool is_repeat = false;
+  // Use this if the key label matters
+  SDL_Keycode keycode = SDLK_UNKNOWN;
+  // Use this if the key location matters
+  // For example, you want they keys at the location of the WASD keys
+  // on the US keyboard, and the label doesn't matter.
+  SDL_Scancode scancode = SDL_SCANCODE_UNKNOWN;
+};
+
+struct Size {
+  Size() {}
+  Size(int w, int h) : w(w), h(h) {}
+  int w = 0;
+  int h = 0;
+};
+
+class Window : private NonCopyable {
+ public:
+  Window(std::string_view title, int w = 800, int h = 600, int scale = 2,
+         std::optional<int> pos_x = std::nullopt,
+         std::optional<int> pos_y = std::nullopt);
+  ~Window() override;
+
+  // TODO: show only after update?
+  void Update(const Surface& surface);
+
+  int width() const { return size().w; }
+  int height() const { return size().h; }
+  Size size() const;
+  bool fullscreen() const;
+  void set_fullscreen(bool full_screen);
+
+ private:
+  SDL_Window* window_ = nullptr;
+  SDL_Renderer* renderer_ = nullptr;
+  SDL_Texture* texture_ = nullptr;
+};
+
+Window::Window(std::string_view title, int w, int h, int scale,
+               std::optional<int> pos_x, std::optional<int> pos_y) {
+  Size physical_size(scale * w, scale * h);
+  BGI_SDL_CHECK_PTR(window_ = SDL_CreateWindow(
+                        std::string(title).c_str(),
+                        pos_x.value_or(SDL_WINDOWPOS_UNDEFINED),
+                        pos_y.value_or(SDL_WINDOWPOS_UNDEFINED),
+                        physical_size.w, physical_size.h, SDL_WINDOW_SHOWN));
+  BGI_SDL_CHECK_PTR(
+      renderer_ = SDL_CreateRenderer(window_, -1, SDL_RENDERER_PRESENTVSYNC));
+  BGI_SDL_CHECK_ZERO(SDL_RenderSetLogicalSize(renderer_, w, h));
+  BGI_SDL_CHECK_PTR(texture_ =
+                        SDL_CreateTexture(renderer_, SDL_PIXELFORMAT_ARGB8888,
+                                          SDL_TEXTUREACCESS_STREAMING, w, h));
+}
+
+Window::~Window() {
+  SDL_DestroyWindow(window_);
+  SDL_DestroyRenderer(renderer_);
+  SDL_DestroyTexture(texture_);
+}
+
+void Window::Update(const Surface& surface) {
+  BGI_SDL_CHECK_ZERO(SDL_UpdateTexture(texture_, NULL, surface.pixels.data(),
+                                       surface.w * sizeof(Color)));
+  BGI_SDL_CHECK_ZERO(SDL_SetRenderDrawColor(renderer_, 0, 0, 0, 255));
+  BGI_SDL_CHECK_ZERO(SDL_RenderClear(renderer_));
+  BGI_SDL_CHECK_ZERO(SDL_RenderCopy(renderer_, texture_, NULL, NULL));
+  SDL_RenderPresent(renderer_);
+}
+
+Size Window::size() const {
+  Size size;
+  SDL_RenderGetLogicalSize(renderer_, &size.w, &size.h);
+  return size;
+}
+bool Window::fullscreen() const {
+  return SDL_GetWindowFlags(window_) & SDL_WINDOW_FULLSCREEN_DESKTOP;
+}
+
+void Window::set_fullscreen(bool full_screen) {
+  BGI_SDL_CHECK_ZERO(SDL_SetWindowFullscreen(
+      window_, full_screen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0));
+}
+
+void AddGraphicsSyscalls(State& state) {
+  state.ex.syscalls["INITG"] = [](State& state) {
+    int w = state.rA().value();
+    int h = state.rX().value();
+    int fullscreen = state.rI(1).value();
+
+    BGI_SDL_CHECK_ZERO(SDL_Init(SDL_INIT_VIDEO));
+    BGI_WARN_FALSE(SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "nearest"));
+
+    state.ex.window = std::make_unique<Window>("MIX Machine", w, h);
+    state.ex.window->set_fullscreen(fullscreen);
+    state.ex.surface = std::make_unique<Surface>(w, h);
+    std::fill(state.ex.surface->pixels.begin(), state.ex.surface->pixels.end(),
+              0xffffffffu);
+  };
+
+  state.ex.syscalls["UPDAG"] = [](State& state) {
+    state.ex.window->Update(*state.ex.surface);
+  };
+
+  state.ex.syscalls["SETPX"] = [](State& state) {
+    int color = state.rA().value() | 0xff000000u;
+    int x = state.rI(1).value();
+    int y = state.rI(2).value();
+    Surface& surface = *state.ex.surface;
+    surface.pixels[y * surface.w + x] = color;
+  };
+
+  state.ex.syscalls["CLOSG"] = [](State& state) {
+    SDL_Quit();
+    state.ex.window.reset();
+    state.ex.surface.reset();
+  };
+}
+
 int main(int argc, char** argv) {
   if (argc < 2) {
     std::cerr << "usage: mix filename.mixal\n";
@@ -1509,6 +1687,7 @@ int main(int argc, char** argv) {
     state.mem = std::move(parser_state.mem);
     state.next_instr = parser_state.start_location;
     AddBasicSyscalls(argc, argv, state);
+    AddGraphicsSyscalls(state);
     SimulateMix(state);
   }
 

@@ -1,0 +1,71 @@
+TERM    EQU     19
+BLOCK   EQU     14
+SYS     EQU     21
+
+INITG   ALF     "INITG"
+UPDAG   ALF     "UPDAG"
+SETPX   ALF     "SETPX"
+CLOSG   ALF     "CLOSG"
+
+MAGIC   ALF     "MIX26"
+        ALF     " REQU"
+        ALF     "IRED "
+        ORIG    MAGIC+BLOCK
+
+BUF     ORIG    BUF+BLOCK
+
+TMP     CON     0
+G       CON     0
+B       CON     0
+
+        ORIG    3000
+START   DIV     =0=
+        JOV     *+1
+        CMPA    MAGIC
+        JNE     UNSUPP
+
+        ENTA    800
+        ENTX    600
+        ENT1    0
+        IOC     INITG(SYS)
+
+        ENT1    0        * X coordinate
+LOOPY   ENT2    0        * Y coordinate
+LOOPX   ST1     G
+        LDA     G
+        MUL     =255=
+        DIV     =800=
+        STA     G
+
+        ST2     B
+        LDA     B
+        MUL     =256=
+        DIV     =600=
+        STA     B
+
+        LDA     G
+        MUL     =256=
+        STX     TMP
+        LDA     TMP
+        ADD     B
+        IOC     SETPX(SYS)
+
+        INC2    1
+        CMP2    =600=
+        JL      LOOPX
+        INC1    1
+        CMP1    =800=
+        JL      LOOPY
+
+        IOC     UPDAG(SYS)
+
+        IN      BUF(TERM)
+        IOC     CLOSG(SYS)
+
+        HLT
+
+UNSUPP  OUT     MAGIC(TERM)
+        JBUS    *(TERM)
+        HLT
+
+        END     START
