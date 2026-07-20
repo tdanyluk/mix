@@ -1,0 +1,117 @@
+MIX simulator (mix.cc) — optimization notes
+=============================================
+
+BIGGEST WINS ALREADY DONE (per git diff + gprof/perf profiling)
+-----------------------------------------------------------------
+1. Removed per-operation debug/range-check assertions (CheckByteIndex,
+   CheckByteValue, CheckPartSpec, Check/CHECK macro, CheckNotFloat, Word
+   range checks in constructors/set_address). The original gprof profile
+   (analysis.txt) showed these consumed ~29% of total runtime alone
+   (CheckByteIndex 11.6%, CheckPartSpec 11.2%, CheckByteValue 6.25%) for
+   zero functional benefit in the hot path. This was the single biggest win.
+
+2. Replaced the string-keyed syscall dispatch (`unordered_map<string,
+   function<void(State&)>>`, converting each syscall address Word to an
+   ASCII string via WordToAscii on every IOC instruction — 8% of runtime
+   alone) with an int-keyed map (`unordered_map<int, function<...>>`),
+   using StringToMixInt to compute the syscall ID once at registration.
+   Added last_call/last_fun caching so repeated identical syscalls skip
+   the hashtable lookup entirely.
+
+3. Added a hardcoded fast-path bypass in ioc() for the SETPX syscall
+   (`if (call == 370504795) { SetPx(state); return; }`), skipping the
+   syscalls map + std::function call entirely for the hottest syscall in
+   graphics-heavy programs.
+
+4. Rewrote get_m/load_mem_operand_part/store_to_mem_operand_part to
+   manually decode sign/address/index/field via direct bitmask ops on
+   the raw instr.data int, instead of calling instr.address()/index()/
+   field() (each of which used to loop through part()/byte() with
+   checks). Special-cased field==5 (full-word load/store) to skip the
+   general part()/set_part() loop, which is the common case.
+
+5. Removed the op_table (std::vector<OpDesc> of function pointers) in
+   favor of a direct switch statement in SimulateMix — enables inlining
+   of op handlers instead of paying for an indirect function-pointer
+   call every instruction.
+
+6. Marked ~30 hot-path functions with [[gnu::always_inline]]
+   (MY_INLINE macro) to force-inline them into SimulateMix's dispatch
+   loop, reducing per-instruction call overhead.
+
+7. Switched state.mem[addr]/state.registers[i] to unchecked operator[]
+   instead of .at() in get_m, load_mem_operand_part,
+   store_to_mem_operand_part, addr_op, compare — removes redundant
+   bounds-check machinery in the hottest per-instruction paths.
+
+8. Removed the try/catch wrapper (and the "instruction counter outside
+   range" check) around the whole SimulateMix loop, eliminating
+   per-iteration exception-handling bookkeeping in the interpreter loop.
+
+9. Cached a raw uint32_t* into the pixel Surface (state.ex.pixels) plus
+   cached width/height, avoiding unique_ptr<Surface> indirection and
+   Surface::w lookups on every SETPX call.
+
+10. Removed the redundant SDL_SetRenderDrawColor + SDL_RenderClear calls
+    in Window::Update — SDL_RenderCopy(NULL, NULL) already overwrites
+    the whole render target, making the clear a no-op that costs a full
+    fill every frame.
+
+11. Word::operator-() now does a single XOR (fromData(data ^ kSignBit))
+    instead of reconstructing via sign()/abs() extraction + constructor.
+
+12. Added PGO build (mix_pgo via -fprofile-generate/-fprofile-use,
+    -O3) — reported ~2x speedup over plain -O2. This is likely the
+    single highest-leverage change of all, since it gives the compiler
+    *measured* branch probabilities and inlining decisions across the
+    whole interpreter instead of relying on static heuristics.
+
+WHAT ELSE COULD BE DONE
+-----------------------------------------------------------------
+1. Replace std::pair/std::tuple/std::tie-based multi-value returns
+   (WordOverflow, HighLow, DivRemOverflow) with plain structs and direct
+   field access. perf (perfreport.txt) showed a large fraction of mul's
+   20% and div's 19% self+children time was std::tuple/std::pair
+   construction/std::get<N> machinery, not the actual arithmetic.
+   e.g.:
+     struct WordOverflow { Word word; bool overflow; };
+     struct HighLow { Word high; Word low; };
+     struct DivRemOverflow { Word quot; Word rem; bool overflow; };
+   and replace std::tie(...) = f(...) with direct field assignment.
+
+2. Outline the remaining throw sites (should_jump, jump, shift,
+   WordsByDevice, spec) into small `[[noreturn, gnu::cold]]` helper
+   functions instead of inline `throw MixException(...)`. Keeps the
+   hot function bodies tiny/inlinable and moves rarely-executed error
+   formatting code out of the hot instruction path (mirrors what
+   libstdc++ does for vector::at()/_M_range_check).
+
+3. Generalize the one-off SETPX fast path into a systematic dispatch:
+   replace `unordered_map<int, std::function<void(State&)>>` for all
+   syscalls with a flat array or raw function-pointer map, removing
+   std::function type-erasure overhead for every non-SETPX syscall too.
+
+4. Switch the remaining `.at()` calls in load(), loadn(), store()
+   (state.registers.at(...)) to unchecked operator[] for consistency
+   with get_m/load_mem_operand_part/store_to_mem_operand_part/addr_op/
+   compare, which already do this.
+
+5. Consider embedding registers (currently std::vector<Word>(10)) and
+   mem (currently std::vector<Word>(4000)) as fixed-size std::array in
+   State, removing one level of heap-pointer indirection and helping
+   the compiler keep the base pointer in a register across the loop.
+
+6. Re-profile the actual PGO/-O2 release binary (not just the -O1 -g /
+   -pg builds used for analysis.txt / perfreport.txt) to confirm which
+   of the above still matter now that PGO is in the mix — some of this
+   may already be resolved by profile-guided inlining/layout.
+
+7. Make PGO part of the standard release build pipeline (document the
+   2-step -fprofile-generate / run representative workloads /
+   -fprofile-use flow in README.md as the primary "release" build,
+   not just an experiment).
+
+8. If graphics-heavy workloads remain a bottleneck, consider dirty-rect
+   tracking for SETPX (only re-upload the changed sub-rect of the
+   texture per frame) rather than a full-buffer SDL_UpdateTexture every
+   UPDAG call.

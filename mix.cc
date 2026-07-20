@@ -25,6 +25,10 @@ static_assert(sizeof(int) >= 4, "This code requires at least 32 bit int.");
 
 #include "SDL.h"
 
+#define MY_INLINE [[gnu::always_inline]]
+
+namespace {
+
 template <typename... Args>
 std::string Format(const Args&... args) {
   std::stringstream stream;
@@ -77,27 +81,27 @@ LeftRight ToLeftRight(int field) {
   return {left, right};
 }
 
-void CheckPartSpec(int left, int right) {
-  if (left < 0 || left > 5 || right < left || right > 5)
-    throw MixException("Invalid part: ", left, ":", right);
-}
+// void CheckPartSpec(int left, int right) {
+//   if (left < 0 || left > 5 || right < left || right > 5)
+//     throw MixException("Invalid part: ", left, ":", right);
+// }
 
-void CheckByteValue(int value) {
-  if (value < 0 || value > 63)
-    throw MixException("Byte outside range: ", value);
-}
+// void CheckByteValue(int value) {
+//   if (value < 0 || value > 63)
+//     throw MixException("Byte outside range: ", value);
+// }
 
-void CheckByteIndex(int i) {
-  if (i < 0 || i > 5)
-    throw MixException("Byte index outside [0, 5]: ", i);
-}
+// void CheckByteIndex(int i) {
+//   if (i < 0 || i > 5)
+//     throw MixException("Byte index outside [0, 5]: ", i);
+// }
 
-void Check(bool good, const char* expr_str) {
-  if (!good)
-    throw MixException("Assertion failed: ", expr_str);
-}
+// void Check(bool good, const char* expr_str) {
+//   if (!good)
+//     throw MixException("Assertion failed: ", expr_str);
+// }
 
-#define CHECK(expr) Check(expr, #expr)
+// #define CHECK(expr) Check(expr, #expr)
 
 struct Word {
   static const int kSignBit = (1 << 30);
@@ -106,90 +110,139 @@ struct Word {
 
   Word() = default;
 
+  MY_INLINE
+  static Word fromData(int data) {
+    Word w;
+    w.data = data;
+    return w;
+  }
+
   explicit Word(int value) {
-    if (value < -kAbsMask || value > kAbsMask)
-      throw MixException("Value outside range of Word: ", value);
+    // if (value < -kAbsMask || value > kAbsMask)
+    //   throw MixException("Value outside range of Word: ", value);
     data = value < 0 ? (kSignBit | -value) : value;
   }
 
   Word(int sign, int abs) {
-    if (abs < 0 || abs > kAbsMask)
-      throw MixException("Invalid abs value: ", abs);
+    // if (abs < 0 || abs > kAbsMask)
+    //   throw MixException("Invalid abs value: ", abs);
     data = sign < 0 ? (kSignBit | abs) : abs;
   }
 
   Word(int sign, int b1, int b2, int b3, int b4, int b5) {
-    for (int b : {b1, b2, b3, b4, b5})
-      CheckByteValue(b);
+    // for (int b : {b1, b2, b3, b4, b5})
+    //   CheckByteValue(b);
     data = (sign < 0 ? kSignBit : 0) | (b1 << 24) | (b2 << 18) | (b3 << 12) |
            (b4 << 6) | b5;
   }
 
-  int sign() const { return (data & kSignBit) ? -1 : 1; }
-  void set_sign(int sign) { *this = Word(sign, abs()); }
+  MY_INLINE
+  int sign_bit() const {
+    return data & kSignBit;
+  }
 
-  int abs() const { return data & kAbsMask; }
-  void set_abs(int abs) { *this = Word(sign(), abs); }
+  MY_INLINE
+  int sign() const {
+    return (data & kSignBit) ? -1 : 1;
+  }
+  MY_INLINE
+  void set_sign(int sign) {
+    *this = Word(sign, abs());
+  }
 
-  int value() const { return sign() * abs(); }
-  void set_value(int value) { *this = Word(value); }
+  MY_INLINE
+  int abs() const {
+    return data & kAbsMask;
+  }
+  MY_INLINE
+  void set_abs(int abs) {
+    *this = Word(sign(), abs);
+  }
 
+  MY_INLINE
+  int value() const {
+    return (data & kSignBit) ? -(data & kAbsMask) : (data & kAbsMask);
+  }
+  MY_INLINE
+  void set_value(int value) {
+    *this = Word(value);
+  }
+
+  MY_INLINE
   int byte(int i) const {
-    CheckByteIndex(i);
+    // CheckByteIndex(i);
     if (i == 0)
       return sign();
     const int shift = (5 - i) * 6;
     return (data >> shift) & kByteMask;
   }
 
+  MY_INLINE
   Word part(int field) const {
     auto [left, right] = ToLeftRight(field);
-    CheckPartSpec(left, right);
+    // CheckPartSpec(left, right);
     Word result(left == 0 ? sign() : 0, 0);
     for (int i = std::max(left, 1); i <= right; i++)
       result.set_byte(i + (5 - right), byte(i));
     return result;
   }
 
+  MY_INLINE
   void set_part(int field, Word value) {
     auto [left, right] = ToLeftRight(field);
-    CheckPartSpec(left, right);
+    // CheckPartSpec(left, right);
     if (left == 0)
       set_sign(value.sign());
     for (int i = std::max(left, 1); i <= right; i++)
       set_byte(i, value.byte(5 - (right - i)));
   }
 
+  MY_INLINE
   void set_byte(int i, int value) {
-    CheckByteIndex(i);
+    // CheckByteIndex(i);
     if (i == 0)
       return set_sign(value);
-    CheckByteValue(value);
+    // CheckByteValue(value);
     const int shift = (5 - i) * 6;
     data = (data & ~(kByteMask << shift)) | (value << shift);
   }
 
-  int address() const { return part(Field(0, 2)).value(); }
+  MY_INLINE
+  int address() const {
+    const int val = (data & kAbsMask) >> 18;
+    return (data & kSignBit) ? -val : val;
+    // return part(Field(0, 2)).value();
+  }
 
   void set_address(int address) {
-    if (address <= -64 * 64 || address >= 64 * 64)
-      throw MixException("Address outside of range: ", address);
+    // if (address <= -64 * 64 || address >= 64 * 64)
+    //   throw MixException("Address outside of range: ", address);
 
     set_part(Field(0, 2), Word(address));
   }
 
-  int index() const { return byte(3); }
+  MY_INLINE
+  int index() const {
+    return (data >> 12) & Word::kByteMask;
+  }
   void set_index(int index) { set_byte(3, index); }
 
-  int field() const { return byte(4); }
+  MY_INLINE
+  int field() const {
+    return (data >> 6) & Word::kByteMask;
+  }
   void set_field(int field) { set_byte(4, field); }
 
-  int code() const { return byte(5); }
+  MY_INLINE
+  int code() const {
+    return data & kByteMask;
+    // return byte(5);
+  }
   void set_code(int code) { set_byte(5, code); }
 
   bool operator==(Word other) const { return data == other.data; }
   bool operator!=(Word other) const { return data != other.data; }
-  Word operator-() const { return Word(-sign(), abs()); }
+  Word operator-() const { return Word::fromData(data ^ kSignBit); }
 
   // 1 bit sign, 30 bit absolute value
   int data = 0;
@@ -210,19 +263,25 @@ using WordOverflow = std::pair<Word, bool>;
 using HighLow = std::pair<Word, Word>;
 using DivRemOverflow = std::tuple<Word, Word, bool>;
 
+MY_INLINE
 WordOverflow add(Word a, Word b) {
   int value = a.value() + b.value();
   int sign = value == 0 ? a.sign() : value;
-  int abs = std::abs(value);
+  int abs = value;  // std::abs(value);
+  if (abs < 0) {
+    abs = -abs;
+  }
   return {Word(sign, abs & Word::kAbsMask), bool(abs & ~Word::kAbsMask)};
 }
 
+MY_INLINE
 HighLow mul(Word a, Word b) {
   int sign = a.sign() * b.sign();
   int64_t abs = int64_t(a.abs()) * b.abs();
   return {Word(sign, abs >> 30), Word(sign, abs & Word::kAbsMask)};
 }
 
+MY_INLINE
 DivRemOverflow div(Word high, Word low, Word divisor) {
   if (divisor.abs() == 0)
     // MIX26 V1
@@ -236,6 +295,7 @@ DivRemOverflow div(Word high, Word low, Word divisor) {
           Word(high.sign(), rem_abs), false};
 }
 
+MY_INLINE
 Word shift_left(Word a, int shift) {
   Word result(a.sign(), 0);
   for (int i = 1; i <= 5; i++) {
@@ -247,19 +307,19 @@ Word shift_left(Word a, int shift) {
 }
 
 int get_non_sign_byte(Word high, Word low, int i) {
-  CHECK(i >= 0 && i < 10);
+  // CHECK(i >= 0 && i < 10);
   return (i < 5) ? high.byte(i + 1) : low.byte(i - 5 + 1);
 }
 
 void set_non_sign_byte(Word& high, Word& low, int i, int value) {
-  CHECK(i >= 0 && i < 10);
+  // CHECK(i >= 0 && i < 10);
   if (i < 5)
     return high.set_byte(i + 1, value);
   low.set_byte(i - 5 + 1, value);
 }
 
 int non_neg_mod(int a, int m) {
-  CHECK(m > 0);
+  // CHECK(m > 0);
   int rem = a % m;
   return rem < 0 ? rem + m : rem;
 }
@@ -306,7 +366,7 @@ HighLow chars(Word word) {
       n /= 10;
     }
   }
-  CHECK(n == 0);
+  // CHECK(n == 0);
   return {high, low};
 }
 
@@ -329,6 +389,22 @@ int ToMixChar(int c) {
   return c >= 32 && c < 128 ? val[c - 32] : -1;
 }
 
+int StringToMixInt(const std::string& s) {
+  if (s.size() > 5) {
+    throw MixException("StringToMixWord: too long string ", s);
+  }
+  int res = 0;
+  for (char c : s) {
+    res <<= 6;
+    int mix_char = ToMixChar(c);
+    if (mix_char == -1) {
+      throw MixException("StringToMixWord: Unsupported char ", int(c));
+    }
+    res |= mix_char;
+  }
+  return res;
+}
+
 class Window;
 struct Surface;
 
@@ -337,11 +413,11 @@ struct State {
   Word rA() const { return registers[0]; }
 
   Word& rI(int i) {
-    CHECK(i >= 1 && i <= 6);
+    // CHECK(i >= 1 && i <= 6);
     return registers[i];
   }
   Word rI(int i) const {
-    CHECK(i >= 1 && i <= 6);
+    // CHECK(i >= 1 && i <= 6);
     return registers[i];
   }
 
@@ -361,13 +437,16 @@ struct State {
   bool halt = false;
 
   struct StateEx {
-    std::unordered_map<std::string, std::function<void(State&)>> syscalls;
+    std::unordered_map<int, std::function<void(State&)>> syscalls;
     // 0..2 reserved for stdin, stdout, stderr
     std::unordered_map<int, FILE*> file_ptrs;
     std::unique_ptr<Window> window;
     std::unique_ptr<Surface> surface;
     bool show_frame_time = false;
     int64_t last_update_ms = 0;
+    uint32_t* pixels = nullptr;
+    int w = 0;
+    int h = 0;
   } ex;
 };
 
@@ -379,29 +458,106 @@ char CmpToChar(int cmp_result) {
   return 'G';
 }
 
+// QQQ
+MY_INLINE
 int get_m(const State& state, Word instr) {
-  int addr = instr.address();
-  if (instr.index() > 6)
-    throw MixException("Invalid index register: ", instr.index());
-  if (instr.index() != 0)
-    addr += state.rI(instr.index()).value();
+  // int addr = instr.address();
+  const int neg = (instr.data & Word::kSignBit) >> 29;
+  const int val = (instr.data & Word::kAbsMask) >> 18;
+  int addr = val - neg * val;
+
+  // TODO!
+  // if (instr.index() > 6)
+  //  throw MixException("Invalid index register: ", instr.index());
+  const int index = (instr.data >> 12) & Word::kByteMask;
+  if (index != 0) {
+    const int word = state.registers[index].data;
+    const int neg = (word & Word::kSignBit) >> 29;
+    const int val = word & Word::kAbsMask;
+
+    addr += val - neg * val;
+  }
   return addr;
 }
 
+MY_INLINE
 int get_address(const State& state, Word instr) {
   int addr = get_m(state, instr);
-  if (addr < 0 || addr >= 4000)
-    throw MixException("Invalid address: ", addr);
+  // if (addr < 0 || addr >= 4000)
+  //   throw MixException("Invalid address: ", addr);
   return addr;
+}
+
+MY_INLINE
+void die(const char* s) {
+  fprintf(stderr, "ERROR: %s\n", s);
+  exit(1);
 }
 
 // load V
+MY_INLINE
 Word load_mem_operand_part(const State& state, Word instr) {
-  return state.mem.at(get_address(state, instr)).part(instr.field());
+  // return state.mem.at(get_address(state, instr)).part(instr.field());
+
+  // int addr = instr.address();
+  const int neg = instr.data & Word::kSignBit;
+  int addr = (instr.data & Word::kAbsMask) >> 18;
+  if (neg) {
+    addr = -addr;
+  }
+
+  // TODO!
+  // if (instr.index() > 6)
+  //  throw MixException("Invalid index register: ", instr.index());
+  const int regIndex = (instr.data >> 12) & Word::kByteMask;
+  if (regIndex != 0) {
+    const int reg = state.registers[regIndex].data;
+    const int neg = reg & Word::kSignBit;
+    int val = reg & Word::kAbsMask;
+    if (neg) {
+      val = -val;
+    }
+    addr += val;
+  }
+
+  Word word = state.mem[addr];
+  const int field = (instr.data >> 6) & Word::kByteMask;
+
+  if (field == 5) {
+    return word;
+  }
+
+  return word.part(field);
 }
 
+MY_INLINE
 void store_to_mem_operand_part(State& state, Word instr, Word value) {
-  state.mem.at(get_address(state, instr)).set_part(instr.field(), value);
+  const int neg = instr.data & Word::kSignBit;
+  const int addr_abs = (instr.data & Word::kAbsMask) >> 18;
+  int addr = (instr.data & Word::kAbsMask) >> 18;
+  if (neg) {
+    addr = -addr;
+  }
+
+  const int regIndex = (instr.data >> 12) & Word::kByteMask;
+  if (regIndex != 0) {
+    const int reg = state.registers[regIndex].data;
+    const int neg = reg & Word::kSignBit;
+    int val = reg & Word::kAbsMask;
+    if (neg) {
+      val = -val;
+    }
+    addr += val;
+  }
+
+  const int field = (instr.data >> 6) & Word::kByteMask;
+
+  if (field == 5) {
+    state.mem[addr] = value;
+    return;
+  }
+
+  state.mem[addr].set_part(instr.field(), value);
 }
 
 void CheckNotFloat(Word instr) {
@@ -409,32 +565,38 @@ void CheckNotFloat(Word instr) {
     throw MixException("Floating point operations are not supported.");
 }
 
+// nop?
+MY_INLINE
 void cycle(State&, Word) {}
 
+MY_INLINE
 void add(State& state, Word instr) {
-  CheckNotFloat(instr);
+  // CheckNotFloat(instr);
   Word b = load_mem_operand_part(state, instr);
   auto [word, overflow] = add(state.rA(), b);
   state.rA() = word;
   state.overflow |= overflow;
 }
 
+MY_INLINE
 void sub(State& state, Word instr) {
-  CheckNotFloat(instr);
+  // CheckNotFloat(instr);
   Word b = load_mem_operand_part(state, instr);
   auto [word, overflow] = add(state.rA(), -b);
   state.rA() = word;
   state.overflow |= overflow;
 }
 
+MY_INLINE
 void mul(State& state, Word instr) {
-  CheckNotFloat(instr);
+  // CheckNotFloat(instr);
   Word b = load_mem_operand_part(state, instr);
   std::tie(state.rA(), state.rX()) = mul(state.rA(), b);
 }
 
+MY_INLINE
 void div(State& state, Word instr) {
-  CheckNotFloat(instr);
+  // CheckNotFloat(instr);
   Word divisor = load_mem_operand_part(state, instr);
   auto [div_res, rem, overflow] = div(state.rA(), state.rX(), divisor);
   state.rA() = div_res;
@@ -442,6 +604,7 @@ void div(State& state, Word instr) {
   state.overflow |= overflow;
 }
 
+MY_INLINE
 void spec(State& state, Word instr) {
   switch (instr.field()) {
     case kNumField: {
@@ -461,6 +624,7 @@ void spec(State& state, Word instr) {
   }
 }
 
+MY_INLINE
 HighLow shift(Word a, Word x, int shift, int field) {
   if (shift < 0)
     throw MixException("Shift value must be non-negative: ", shift);
@@ -477,12 +641,14 @@ HighLow shift(Word a, Word x, int shift, int field) {
   }
 }
 
+MY_INLINE
 void shift(State& state, Word instr) {
   int shift_amount = get_m(state, instr);
   std::tie(state.rA(), state.rX()) =
       shift(state.rA(), state.rX(), shift_amount, instr.field());
 }
 
+MY_INLINE
 void move(State& state, Word instr) {
   int source_address = get_address(state, instr);
   int num_words = instr.field();
@@ -499,27 +665,31 @@ void move(State& state, Word instr) {
   state.time += num_words * 2;
 }
 
+MY_INLINE
 void load(State& state, Word instr) {
   int code = instr.code();
   Word value = load_mem_operand_part(state, instr);
-  if (code >= kLd1 && code <= kLd6 && value.abs() >= 64 * 64)
-    throw MixException("Index register overflow would happen: ", value);
+  // if (code >= kLd1 && code <= kLd6 && value.abs() >= 64 * 64)
+  //   throw MixException("Index register overflow would happen: ", value);
   state.registers.at(code - kLda) = value;
 }
 
+MY_INLINE
 void loadn(State& state, Word instr) {
   int code = instr.code();
   Word value = load_mem_operand_part(state, instr);
-  if (code >= kLd1n && code <= kLd6n && value.abs() >= 64 * 64)
-    throw MixException("Index register overflow would happen: ", value);
+  // if (code >= kLd1n && code <= kLd6n && value.abs() >= 64 * 64)
+  //   throw MixException("Index register overflow would happen: ", value);
   state.registers.at(code - kLdan) = -value;
 }
 
+MY_INLINE
 void store(State& state, Word instr) {
   int reg_index = instr.code() - kSta;
   store_to_mem_operand_part(state, instr, state.registers.at(reg_index));
 }
 
+MY_INLINE
 std::string WordToAscii(Word word, bool skipWs = false) {
   std::string ascii;
   ascii.reserve(5);
@@ -535,22 +705,40 @@ std::string WordToAscii(Word word, bool skipWs = false) {
   return ascii;
 }
 
+void SetPx(State& state);
+
+MY_INLINE
 void ioc(State& state, Word instr) {
   if (instr.field() == kSysCallFieldEx) {
+    static int last_call = -1;
+    static std::function<void(State&)> last_fun;
+
     int m = get_m(state, instr);
-    std::string name = WordToAscii(state.mem.at(m), /*skipWs=*/true);
-    if (!state.ex.syscalls.count(name))
-      throw MixException("Syscall not found: ", name);
-    state.ex.syscalls[name](state);
+    // int call = state.mem.at(m).data;
+    int call = state.mem[m].data;
+    if (call == 370504795) {
+      SetPx(state);
+      return;
+    }
+    if (call != last_call) {
+      last_call = call;
+      last_fun = state.ex.syscalls[call];
+    }
+
+    // std::string name = WordToAscii(state.mem.at(m), /*skipWs=*/true);
+    // if (!state.ex.syscalls.count(name))
+    //   throw MixException("Syscall not found: ", name);
+    last_fun(state);
     return;
   }
-  if (instr.field() != kLinePrinterField)
-    throw MixException("IOC is only supported for the line printer (=nop).");
-  int m = get_m(state, instr);
-  if (m != 0)
-    throw MixException("M must be 0, got: ", m);
+  // if (instr.field() != kLinePrinterField)
+  //   throw MixException("IOC is only supported for the line printer (=nop).");
+  // int m = get_m(state, instr);
+  // if (m != 0)
+  //   throw MixException("M must be 0, got: ", m);
 }
 
+MY_INLINE
 int WordsByDevice(int device) {
   switch (device) {
     case kCardReaderField:
@@ -561,11 +749,13 @@ int WordsByDevice(int device) {
   }
 }
 
+MY_INLINE
 std::string TrimSpacesOnTheRight(std::string s) {
   s.erase(s.find_last_not_of(' ') + 1);
   return s;
 }
 
+MY_INLINE
 void out(State& state, Word instr) {
   int device = instr.field();
   int num_words = WordsByDevice(device);
@@ -587,6 +777,7 @@ void out(State& state, Word instr) {
   std::cout << TrimSpacesOnTheRight(std::move(line)) << '\n';
 }
 
+MY_INLINE
 void in(State& state, Word instr) {
   int device = instr.field();
   int num_words = WordsByDevice(device);
@@ -619,12 +810,15 @@ void in(State& state, Word instr) {
   }
 }
 
+MY_INLINE
 void jbus(State&, Word) { /* never busy*/ }
 
+MY_INLINE
 void jred(State& state, Word instr) {
   state.next_instr = get_address(state, instr);  // always ready
 }
 
+MY_INLINE
 bool should_jump(int field, int value, bool overflow) {
   switch (field) {
     case kJmpField:
@@ -643,6 +837,7 @@ bool should_jump(int field, int value, bool overflow) {
   }
 }
 
+MY_INLINE
 void jump(State& state, Word instr) {
   int field = instr.field();
 
@@ -659,6 +854,7 @@ void jump(State& state, Word instr) {
     state.overflow = false;
 }
 
+MY_INLINE
 void reg_jump(State& state, Word instr) {
   int reg_index = instr.code() - kJa;
   int reg_value = state.registers.at(reg_index).value();
@@ -673,35 +869,51 @@ void reg_jump(State& state, Word instr) {
   }
 }
 
-WordOverflow addr_op(Word a, Word b, int field) {
+MY_INLINE
+WordOverflow addr_op_inner(Word a, Word b, int field) {
   switch (field) {
     case kIncField: return add(a, b);
     case kDecField: return add(a, -b);
     case kEntField: return {b, false};
     case kEnnField: return {-b, false};
-    default: throw MixException("Bad addr_op field: ", field);
+    default:
+      return WordOverflow(a, true);
+      // throw MixException("Bad addr_op field: ", field);
   }
 }
 
+MY_INLINE
 void addr_op(State& state, Word instr) {
   int code = instr.code();
-  Word& target_reg = state.registers.at(code - kAddrOpA);
+  // TODO check
+  Word& target_reg = state.registers[code - kAddrOpA];
   Word value = Word(get_m(state, instr));
 
   Word word;
   bool overflow;
-  std::tie(word, overflow) = addr_op(target_reg, value, instr.field());
+  std::tie(word, overflow) = addr_op_inner(target_reg, value, instr.field());
 
-  if (code >= kAddrOp1 && code <= kAddrOp6)
+  /*if (code >= kAddrOp1 && code <= kAddrOp6)
     if (overflow || word.abs() >= 64 * 64)
-      throw MixException("Index register overflow would happen.");
+      throw MixException("Index register overflow would happen.");*/
 
   target_reg = word;
   state.overflow |= overflow;
 }
 
+MY_INLINE
 void compare(State& state, Word instr) {
-  int a = state.registers.at(instr.code() - kCmpa).part(instr.field()).value();
+  int code = instr.data & Word::kByteMask;
+  Word a_word = state.registers[code - kCmpa];  // TODO check limit
+  const int field = (instr.data >> 6) & Word::kByteMask;
+  if (field != 5) {
+    a_word = a_word.part(field);
+  }
+
+  const int neg = a_word.data & Word::kSignBit;
+  int a =
+      neg ? -(a_word.data & Word::kAbsMask) : (a_word.data & Word::kAbsMask);
+
   int b = load_mem_operand_part(state, instr).value();
   state.cmp_result = a - b;
 }
@@ -713,40 +925,112 @@ struct OpDesc {
   int time = 0;
 };
 
-const std::vector<OpDesc> op_table = {
-    {cycle, 1},    {add, 2},      {sub, 2},      {mul, 10},     {div, 12},
-    {spec, 10},    {shift, 2},    {move, 1},     {load, 2},     {load, 2},
-    {load, 2},     {load, 2},     {load, 2},     {load, 2},     {load, 2},
-    {load, 2},     {loadn, 2},    {loadn, 2},    {loadn, 2},    {loadn, 2},
-    {loadn, 2},    {loadn, 2},    {loadn, 2},    {loadn, 2},    {store, 2},
-    {store, 2},    {store, 2},    {store, 2},    {store, 2},    {store, 2},
-    {store, 2},    {store, 2},    {store, 2},    {store, 2},    {jbus, 1},
-    {ioc, 1},      {in, 1},       {out, 1},      {jred, 1},     {jump, 1},
-    {reg_jump, 1}, {reg_jump, 1}, {reg_jump, 1}, {reg_jump, 1}, {reg_jump, 1},
-    {reg_jump, 1}, {reg_jump, 1}, {reg_jump, 1}, {addr_op, 1},  {addr_op, 1},
-    {addr_op, 1},  {addr_op, 1},  {addr_op, 1},  {addr_op, 1},  {addr_op, 1},
-    {addr_op, 1},  {compare, 2},  {compare, 2},  {compare, 2},  {compare, 2},
-    {compare, 2},  {compare, 2},  {compare, 2},  {compare, 2},
-};
+// const std::vector<OpDesc> op_table = {
+//     {cycle, 1},    {add, 2},      {sub, 2},      {mul, 10},     {div, 12},
+//     {spec, 10},    {shift, 2},    {move, 1},     {load, 2},     {load, 2},
+//     {load, 2},     {load, 2},     {load, 2},     {load, 2},     {load, 2},
+//     {load, 2},     {loadn, 2},    {loadn, 2},    {loadn, 2},    {loadn, 2},
+//     {loadn, 2},    {loadn, 2},    {loadn, 2},    {loadn, 2},    {store, 2},
+//     {store, 2},    {store, 2},    {store, 2},    {store, 2},    {store, 2},
+//     {store, 2},    {store, 2},    {store, 2},    {store, 2},    {jbus, 1},
+//     {ioc, 1},      {in, 1},       {out, 1},      {jred, 1},     {jump, 1},
+//     {reg_jump, 1}, {reg_jump, 1}, {reg_jump, 1}, {reg_jump, 1}, {reg_jump,
+//     1}, {reg_jump, 1}, {reg_jump, 1}, {reg_jump, 1}, {addr_op, 1},  {addr_op,
+//     1}, {addr_op, 1},  {addr_op, 1},  {addr_op, 1},  {addr_op, 1},  {addr_op,
+//     1}, {addr_op, 1},  {compare, 2},  {compare, 2},  {compare, 2},  {compare,
+//     2}, {compare, 2},  {compare, 2},  {compare, 2},  {compare, 2},
+// };
 
 void SimulateMix(State& state) {
   int last_instruction = 0;
-  try {
-    while (!state.halt) {
-      last_instruction = state.next_instr;
-      if (state.next_instr < 0 || state.next_instr >= (int)state.mem.size())
-        throw MixException(
-            "Instruction counter outside range. Did you forget to HLT?\n");
-      Word instr = state.mem.at(state.next_instr++);
-      OpDesc op = op_table.at(instr.code());
-      op.fun(state, instr);
-      state.time += op.time;
+  // try {
+  while (!state.halt) {
+    last_instruction = state.next_instr;
+    // if (state.next_instr < 0 || state.next_instr >= (int)state.mem.size())
+    //   throw MixException(
+    //       "Instruction counter outside range. Did you forget to HLT?\n");
+    // Word instr = state.mem.at(state.next_instr++);
+    // OpDesc op = op_table.at(instr.code());
+    Word instr = state.mem[state.next_instr++];
+    int code = instr.data & Word::kByteMask;
+    // OpDesc op = op_table[code];
+
+    // op.fun(state, instr);
+    switch (code) {
+      case 0: cycle(state, instr); break;
+      case 1: add(state, instr); break;
+      case 2: sub(state, instr); break;
+      case 3: mul(state, instr); break;
+      case 4: div(state, instr); break;
+      case 5: spec(state, instr); break;
+      case 6: shift(state, instr); break;
+      case 7: move(state, instr); break;
+      case 8:
+      case 9:
+      case 10:
+      case 11:
+      case 12:
+      case 13:
+      case 14:
+      case 15: load(state, instr); break;
+      case 16:
+      case 17:
+      case 18:
+      case 19:
+      case 20:
+      case 21:
+      case 22:
+      case 23: loadn(state, instr); break;
+      case 24:
+      case 25:
+      case 26:
+      case 27:
+      case 28:
+      case 29:
+      case 30:
+      case 31:
+      case 32:
+      case 33: store(state, instr); break;
+      case 34: jbus(state, instr); break;
+      case 35: ioc(state, instr); break;
+      case 36: in(state, instr); break;
+      case 37: out(state, instr); break;
+      case 38: jred(state, instr); break;
+      case 39: jump(state, instr); break;
+      case 40:
+      case 41:
+      case 42:
+      case 43:
+      case 44:
+      case 45:
+      case 46:
+      case 47: reg_jump(state, instr); break;
+      case 48:
+      case 49:
+      case 50:
+      case 51:
+      case 52:
+      case 53:
+      case 54:
+      case 55: addr_op(state, instr); break;
+      case 56:
+      case 57:
+      case 58:
+      case 59:
+      case 60:
+      case 61:
+      case 62:
+      case 63: compare(state, instr); break;
+      default: fprintf(stderr, "unknown code"); exit(1);
     }
-  } catch (const std::exception& e) {
-    std::cerr << "Exception received at instruction address "
-              << last_instruction << ":\n";
-    std::cerr << e.what() << "\n";
+
+    state.time += 1;  // op.time;
   }
+  // } catch (const std::exception& e) {
+  //   std::cerr << "Exception received at instruction address "
+  //             << last_instruction << ":\n";
+  //   std::cerr << e.what() << "\n";
+  // }
 }
 
 // ---- Parser ----
@@ -1316,7 +1600,7 @@ char WordToCChar(Word w) {
 void AddBasicSyscalls(int argc, char** argv, State& state) {
   // DUMPR: ()->()
   // Debug: Dump registers.
-  state.ex.syscalls["DUMPR"] = [argc, argv](State& state) {
+  state.ex.syscalls[StringToMixInt("DUMPR")] = [argc, argv](State& state) {
     std::cout << "rA: " << state.rA() << "\n";
     std::cout << "rX: " << state.rX() << "\n";
     std::cout << "rI1: " << state.rI(1) << "\n";
@@ -1332,7 +1616,7 @@ void AddBasicSyscalls(int argc, char** argv, State& state) {
 
   // DUMPM: (A: buf, X: bufSize)->()
   // Debug: Dump buffer as numbers and ASCII characters.
-  state.ex.syscalls["DUMPM"] = [argc, argv](State& state) {
+  state.ex.syscalls[StringToMixInt("DUMPM")] = [argc, argv](State& state) {
     int buf = state.rA().value();
     int bufSize = state.rX().value();
 
@@ -1359,7 +1643,7 @@ void AddBasicSyscalls(int argc, char** argv, State& state) {
 
   // DUMPS: (A: buf, X: bufSize)->()
   // Debug: Dump buffer as a string.
-  state.ex.syscalls["DUMPS"] = [argc, argv](State& state) {
+  state.ex.syscalls[StringToMixInt("DUMPS")] = [argc, argv](State& state) {
     int buf = state.rA().value();
     int bufSize = state.rX().value();
 
@@ -1389,13 +1673,13 @@ void AddBasicSyscalls(int argc, char** argv, State& state) {
   };
 
   // ARGC: ()->(A: argc)
-  state.ex.syscalls["ARGC"] = [argc](State& state) {
+  state.ex.syscalls[StringToMixInt("ARGC")] = [argc](State& state) {
     state.rA() = Word(argc - 1);
   };
 
   // ARGV: (A: buf, X: bufSize, I1:argIndex)->(A: wordsWrittenToBuf)
   // Stores each C byte in a MIX word.
-  state.ex.syscalls["ARGV"] = [argc, argv](State& state) {
+  state.ex.syscalls[StringToMixInt("ARGV")] = [argc, argv](State& state) {
     int buf = state.rA().value();
     int bufSize = state.rX().value();
     int argIndex = state.rI(1).value();
@@ -1415,7 +1699,7 @@ void AddBasicSyscalls(int argc, char** argv, State& state) {
 
   // FOPEN: (A: nameBuf, X: nameSize, I1:modeStringLoc)->(A: fileIndex or -1)
   // Mode string is a MIX string
-  state.ex.syscalls["FOPEN"] = [argc, argv](State& state) {
+  state.ex.syscalls[StringToMixInt("FOPEN")] = [argc, argv](State& state) {
     int nameBuf = state.rA().value();
     int nameSize = state.rX().value();
     int modeStringLoc = state.rI(1).value();
@@ -1456,7 +1740,7 @@ void AddBasicSyscalls(int argc, char** argv, State& state) {
   // Stores each C byte in a MIX word.
   // if wordsWrittenToBuf < size then it is either an error or EOF.
   // We can use FERRO to check if it's an error.
-  state.ex.syscalls["FREAD"] = [argc, argv](State& state) {
+  state.ex.syscalls[StringToMixInt("FREAD")] = [argc, argv](State& state) {
     int buf = state.rA().value();
     int size = state.rX().value();
     int fileno = state.rI(1).value();
@@ -1477,7 +1761,7 @@ void AddBasicSyscalls(int argc, char** argv, State& state) {
   };
 
   // FERRO: (I1:fileIndex)->(A: 0 or error)
-  state.ex.syscalls["FERRO"] = [argc, argv](State& state) {
+  state.ex.syscalls[StringToMixInt("FERRO")] = [argc, argv](State& state) {
     int fileno = state.rI(1).value();
 
     if (!state.ex.file_ptrs.count(fileno))
@@ -1492,7 +1776,7 @@ void AddBasicSyscalls(int argc, char** argv, State& state) {
   };
 
   // FCLOS: (I1:fileIndex)->(A: 0 or error)
-  state.ex.syscalls["FCLOS"] = [argc, argv](State& state) {
+  state.ex.syscalls[StringToMixInt("FCLOS")] = [argc, argv](State& state) {
     int fileno = state.rI(1).value();
 
     if (!state.ex.file_ptrs.count(fileno))
@@ -1573,7 +1857,7 @@ struct Size {
 
 class Window : private NonCopyable {
  public:
-  Window(std::string_view title, int w = 800, int h = 600, int scale = 2,
+  Window(std::string_view title, int w = 800, int h = 600, int scale = 1,
          std::optional<int> pos_x = std::nullopt,
          std::optional<int> pos_y = std::nullopt);
   ~Window() override;
@@ -1618,8 +1902,8 @@ Window::~Window() {
 void Window::Update(const Surface& surface) {
   BGI_SDL_CHECK_ZERO(SDL_UpdateTexture(texture_, NULL, surface.pixels.data(),
                                        surface.w * sizeof(Color)));
-  BGI_SDL_CHECK_ZERO(SDL_SetRenderDrawColor(renderer_, 0, 0, 0, 255));
-  BGI_SDL_CHECK_ZERO(SDL_RenderClear(renderer_));
+  // BGI_SDL_CHECK_ZERO(SDL_SetRenderDrawColor(renderer_, 0, 0, 0, 255));
+  // BGI_SDL_CHECK_ZERO(SDL_RenderClear(renderer_));
   BGI_SDL_CHECK_ZERO(SDL_RenderCopy(renderer_, texture_, NULL, NULL));
   SDL_RenderPresent(renderer_);
 }
@@ -1638,9 +1922,18 @@ void Window::set_fullscreen(bool full_screen) {
       window_, full_screen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0));
 }
 
+void SetPx(State& state) {
+  int color = state.rA().value() | 0xff000000u;
+  int x = state.rI(1).value();
+  int y = state.rI(2).value();
+  // Surface& surface = *state.ex.surface;
+  // surface.pixels[y * surface.w + x] = color;
+  state.ex.pixels[y*state.ex.w + x] = color;
+};
+
 // TODO: Consider: first fill the buffer and then open the window.
 void AddGraphicsSyscalls(State& state) {
-  state.ex.syscalls["INITG"] = [](State& state) {
+  state.ex.syscalls[StringToMixInt("INITG")] = [](State& state) {
     int w = state.rA().value();
     int h = state.rX().value();
     int fullscreen = state.rI(1).value();
@@ -1654,9 +1947,12 @@ void AddGraphicsSyscalls(State& state) {
     std::fill(state.ex.surface->pixels.begin(), state.ex.surface->pixels.end(),
               0xffffffffu);
     state.ex.last_update_ms = SDL_GetTicks();
+    state.ex.pixels = state.ex.surface->pixels.data();
+    state.ex.w = w;
+    state.ex.h = h;
   };
 
-  state.ex.syscalls["UPDAG"] = [](State& state) {
+  state.ex.syscalls[StringToMixInt("UPDAG")] = [](State& state) {
     state.ex.window->Update(*state.ex.surface);
     int64_t time_ms = SDL_GetTicks();
     if (state.ex.show_frame_time) {
@@ -1678,15 +1974,16 @@ void AddGraphicsSyscalls(State& state) {
     state.ex.last_update_ms = time_ms;
   };
 
-  state.ex.syscalls["SETPX"] = [](State& state) {
+  state.ex.syscalls[StringToMixInt("SETPX")] = [](State& state) {
     int color = state.rA().value() | 0xff000000u;
     int x = state.rI(1).value();
     int y = state.rI(2).value();
-    Surface& surface = *state.ex.surface;
-    surface.pixels[y * surface.w + x] = color;
+    state.ex.pixels[y*state.ex.w + x] = color;
+    // Surface& surface = *state.ex.surface;
+    // surface.pixels[y * surface.w + x] = color;
   };
 
-  state.ex.syscalls["WAITK"] = [](State& state) {
+  state.ex.syscalls[StringToMixInt("WAITK")] = [](State& state) {
     KeyPress k;
 
     SDL_Event e;
@@ -1708,7 +2005,7 @@ void AddGraphicsSyscalls(State& state) {
     state.rI(2) = Word(k.should_quit);
   };
 
-  state.ex.syscalls["POLLK"] = [](State& state) {
+  state.ex.syscalls[StringToMixInt("POLLK")] = [](State& state) {
     KeyPress k;
     bool has_key = false;
     SDL_Event e;
@@ -1736,16 +2033,18 @@ void AddGraphicsSyscalls(State& state) {
     state.rI(3) = Word(has_key);
   };
 
-  state.ex.syscalls["FRAMT"] = [](State& state) {
+  state.ex.syscalls[StringToMixInt("FRAMT")] = [](State& state) {
     state.ex.show_frame_time = (state.rA().value() != 0);
   };
 
-  state.ex.syscalls["CLOSG"] = [](State& state) {
+  state.ex.syscalls[StringToMixInt("CLOSG")] = [](State& state) {
     SDL_Quit();
     state.ex.window.reset();
     state.ex.surface.reset();
   };
 }
+
+}  // namespace
 
 int main(int argc, char** argv) {
   if (argc < 2) {
