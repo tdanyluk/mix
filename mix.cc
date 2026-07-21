@@ -713,28 +713,23 @@ void compare(State& state, Word instr) {
   state.cmp_result = a - b;
 }
 
-using OpFun = void(State&, Word instr);
-
-struct OpDesc {
-  OpFun* fun = nullptr;
-  int time = 0;
+// clang-format off
+const std::vector<int> op_time = {
+    /*kNop:*/ 1, /*kAdd:*/ 2, /*kSub:*/ 2, /*kMul:*/ 10, /*kDiv:*/ 12,
+    /*kSpec:*/ 10, /*kShift:*/ 2, /*kMove:*/ 1, /*kLda:*/ 2, /*kLd1:*/ 2,
+    /*kLd2:*/ 2, /*kLd3:*/ 2, /*kLd4:*/ 2, /*kLd5:*/ 2, /*kLd6:*/ 2,
+    /*kLdx:*/ 2, /*kLdan:*/ 2, /*kLd1n:*/ 2, /*kLd2n:*/ 2, /*kLd3n:*/ 2,
+    /*kLd4n:*/ 2, /*kLd5n:*/ 2, /*kLd6n:*/ 2, /*kLdxn:*/ 2, /*kSta:*/ 2,
+    /*kSt1:*/ 2, /*kSt2:*/ 2, /*kSt3:*/ 2, /*kSt4:*/ 2, /*kSt5:*/ 2,
+    /*kSt6:*/ 2, /*kStx:*/ 2, /*kStj:*/ 2, /*kStz:*/ 2, /*kJbus:*/ 1,
+    /*kIoc:*/ 1, /*kIn:*/ 1, /*kOut:*/ 1, /*kJred:*/ 1, /*kJump:*/ 1,
+    /*kJa:*/ 1, /*kJ1:*/ 1, /*kJ2:*/ 1, /*kJ3:*/ 1, /*kJ4:*/ 1,
+    /*kJ5:*/ 1, /*kJ6:*/ 1, /*kJx:*/ 1, /*kAddrOpA:*/ 1, /*kAddrOp1:*/ 1,
+    /*kAddrOp2:*/ 1, /*kAddrOp3:*/ 1, /*kAddrOp4:*/ 1, /*kAddrOp5:*/ 1, /*kAddrOp6:*/ 1,
+    /*kAddrOpX:*/ 1, /*kCmpa:*/ 2, /*kCmp1:*/ 2, /*kCmp2:*/ 2, /*kCmp3:*/ 2,
+    /*kCmp4:*/ 2, /*kCmp5:*/ 2, /*kCmp6:*/ 2, /*kCmpx:*/ 2,
 };
-
-const std::vector<OpDesc> op_table = {
-    {cycle, 1},    {add, 2},      {sub, 2},      {mul, 10},     {div, 12},
-    {spec, 10},    {shift, 2},    {move, 1},     {load, 2},     {load, 2},
-    {load, 2},     {load, 2},     {load, 2},     {load, 2},     {load, 2},
-    {load, 2},     {loadn, 2},    {loadn, 2},    {loadn, 2},    {loadn, 2},
-    {loadn, 2},    {loadn, 2},    {loadn, 2},    {loadn, 2},    {store, 2},
-    {store, 2},    {store, 2},    {store, 2},    {store, 2},    {store, 2},
-    {store, 2},    {store, 2},    {store, 2},    {store, 2},    {jbus, 1},
-    {ioc, 1},      {in, 1},       {out, 1},      {jred, 1},     {jump, 1},
-    {reg_jump, 1}, {reg_jump, 1}, {reg_jump, 1}, {reg_jump, 1}, {reg_jump, 1},
-    {reg_jump, 1}, {reg_jump, 1}, {reg_jump, 1}, {addr_op, 1},  {addr_op, 1},
-    {addr_op, 1},  {addr_op, 1},  {addr_op, 1},  {addr_op, 1},  {addr_op, 1},
-    {addr_op, 1},  {compare, 2},  {compare, 2},  {compare, 2},  {compare, 2},
-    {compare, 2},  {compare, 2},  {compare, 2},  {compare, 2},
-};
+// clang-format on
 
 void SimulateMix(State& state) {
   int last_instruction = 0;
@@ -745,9 +740,77 @@ void SimulateMix(State& state) {
         ThrowMixException(
             "Instruction counter outside range. Did you forget to HLT?\n");
       Word instr = state.mem.at(state.next_instr++);
-      OpDesc op = op_table.at(instr.code());
-      op.fun(state, instr);
-      state.time += op.time;
+      int code = instr.code();
+      // clang-format off
+      switch (code) {
+        case kNop: cycle(state, instr); break;
+        case kAdd: add(state, instr); break;
+        case kSub: sub(state, instr); break;
+        case kMul: mul(state, instr); break;
+        case kDiv: div(state, instr); break;
+        case kSpec: spec(state, instr); break;
+        case kShift: shift(state, instr); break;
+        case kMove: move(state, instr); break;
+        case kLda:
+        case kLd1:
+        case kLd2:
+        case kLd3:
+        case kLd4:
+        case kLd5:
+        case kLd6:
+        case kLdx: load(state, instr); break;
+        case kLdan:
+        case kLd1n:
+        case kLd2n:
+        case kLd3n:
+        case kLd4n:
+        case kLd5n:
+        case kLd6n:
+        case kLdxn: loadn(state, instr); break;
+        case kSta:
+        case kSt1:
+        case kSt2:
+        case kSt3:
+        case kSt4:
+        case kSt5:
+        case kSt6:
+        case kStx:
+        case kStj:
+        case kStz: store(state, instr); break;
+        case kJbus: jbus(state, instr); break;
+        case kIoc: ioc(state, instr); break;
+        case kIn: in(state, instr); break;
+        case kOut: out(state, instr); break;
+        case kJred: jred(state, instr); break;
+        case kJump: jump(state, instr); break;
+        case kJa:
+        case kJ1:
+        case kJ2:
+        case kJ3:
+        case kJ4:
+        case kJ5:
+        case kJ6:
+        case kJx: reg_jump(state, instr); break;
+        case kAddrOpA:
+        case kAddrOp1:
+        case kAddrOp2:
+        case kAddrOp3:
+        case kAddrOp4:
+        case kAddrOp5:
+        case kAddrOp6:
+        case kAddrOpX: addr_op(state, instr); break;
+        case kCmpa:
+        case kCmp1:
+        case kCmp2:
+        case kCmp3:
+        case kCmp4:
+        case kCmp5:
+        case kCmp6:
+        case kCmpx: compare(state, instr); break;
+        default: ThrowMixException("Invalid opcode: ", code);
+      }
+      // clang-format on
+      state.time += op_time.at(code);
     }
   } catch (const std::exception& e) {
     std::cerr << "Exception received at instruction address "
