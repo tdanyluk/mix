@@ -38,6 +38,8 @@ graph.mixal (1920x1080) - second frame
     4.15 fps
 19. Faster syscalls + SetPx fast path
     5.29 fps
+20. Inline add,mul,div,CheckNotFloat, save pointer to mem to locals
+    5.62 fps
 
 # Profiling
 ```
@@ -45,3 +47,6 @@ g++ mix.cc -std=c++17 -O2 -march=native -DNDEBUG -g -o mix_g $(pkg-config --cfla
 /usr/lib/linux-tools/5.4.0-216-generic/perf record -g ./mix_g custom/graph.mixal
 /usr/lib/linux-tools/5.4.0-216-generic/perf report
 ```
+
+# TODO
+Vector to array

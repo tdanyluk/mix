@@ -240,20 +240,20 @@ using WordOverflow = std::pair<Word, bool>;
 using HighLow = std::pair<Word, Word>;
 using DivRemOverflow = std::tuple<Word, Word, bool>;
 
-WordOverflow add(Word a, Word b) {
+INLINE WordOverflow add(Word a, Word b) {
   int value = a.value() + b.value();
   int sign = value == 0 ? a.sign() : value;
   int abs = std::abs(value);
   return {Word(sign, abs & Word::kAbsMask), bool(abs & ~Word::kAbsMask)};
 }
 
-HighLow mul(Word a, Word b) {
+INLINE HighLow mul(Word a, Word b) {
   int sign = a.sign() * b.sign();
   int64_t abs = int64_t(a.abs()) * b.abs();
   return {Word(sign, abs >> 30), Word(sign, abs & Word::kAbsMask)};
 }
 
-DivRemOverflow div(Word high, Word low, Word divisor) {
+INLINE DivRemOverflow div(Word high, Word low, Word divisor) {
   if (divisor.abs() == 0)
     // MIX26 V1
     return {Word(1, 14, 9, 27, 32, 36), Word(1, 0, 0, 0, 25, 31), true};
@@ -439,14 +439,14 @@ INLINE void store_to_mem_operand_part(State& state, Word instr, Word value) {
   state.mem[get_address(state, instr)].set_part(instr.field(), value);
 }
 
-void CheckNotFloat(Word instr) {
+INLINE void CheckNotFloat(Word instr) {
   if (instr.field() == kFloatField)
     ThrowMixException("Floating point operations are not supported.");
 }
 
 void cycle(State&, Word) {}
 
-void add(State& state, Word instr) {
+void add_op(State& state, Word instr) {
   CheckNotFloat(instr);
   Word b = load_mem_operand_part(state, instr);
   auto [word, overflow] = add(state.rA(), b);
@@ -454,7 +454,7 @@ void add(State& state, Word instr) {
   state.overflow |= overflow;
 }
 
-void sub(State& state, Word instr) {
+void sub_op(State& state, Word instr) {
   CheckNotFloat(instr);
   Word b = load_mem_operand_part(state, instr);
   auto [word, overflow] = add(state.rA(), -b);
@@ -462,13 +462,13 @@ void sub(State& state, Word instr) {
   state.overflow |= overflow;
 }
 
-void mul(State& state, Word instr) {
+void mul_op(State& state, Word instr) {
   CheckNotFloat(instr);
   Word b = load_mem_operand_part(state, instr);
   std::tie(state.rA(), state.rX()) = mul(state.rA(), b);
 }
 
-void div(State& state, Word instr) {
+void div_op(State& state, Word instr) {
   CheckNotFloat(instr);
   Word divisor = load_mem_operand_part(state, instr);
   auto [div_res, rem, overflow] = div(state.rA(), state.rX(), divisor);
@@ -766,22 +766,25 @@ const std::vector<int> op_time = {
 // clang-format on
 
 void SimulateMix(State& state) {
+  constexpr int MemSize = 4000;
+  Word* mem = state.mem.data();
+
   int last_instruction = 0;
   try {
     while (!state.halt) {
       last_instruction = state.next_instr;
-      if (state.next_instr < 0 || state.next_instr >= (int)state.mem.size())
+      if (state.next_instr < 0 || state.next_instr >= MemSize)
         ThrowMixException(
             "Instruction counter outside range. Did you forget to HLT?\n");
-      Word instr = state.mem.at(state.next_instr++);
+      Word instr = mem[state.next_instr++];
       int code = instr.code();
       // clang-format off
       switch (code) {
         case kNop: cycle(state, instr); break;
-        case kAdd: add(state, instr); break;
-        case kSub: sub(state, instr); break;
-        case kMul: mul(state, instr); break;
-        case kDiv: div(state, instr); break;
+        case kAdd: add_op(state, instr); break;
+        case kSub: sub_op(state, instr); break;
+        case kMul: mul_op(state, instr); break;
+        case kDiv: div_op(state, instr); break;
         case kSpec: spec(state, instr); break;
         case kShift: shift(state, instr); break;
         case kMove: move(state, instr); break;
@@ -844,7 +847,7 @@ void SimulateMix(State& state) {
         default: ThrowMixException("Invalid opcode: ", code);
       }
       // clang-format on
-      state.time += op_time.at(code);
+      state.time += op_time[code];
     }
   } catch (const std::exception& e) {
     std::cerr << "Exception received at instruction address "
