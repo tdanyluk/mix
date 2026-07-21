@@ -855,7 +855,7 @@ void SimulateMix(State& state) {
         default: ThrowMixException("Invalid opcode: ", code);
       }
       // clang-format on
-      state.time += op_time[code];
+      // TODO: state.time += op_time[code];
     }
   } catch (const std::exception& e) {
     std::cerr << "Exception received at instruction address "

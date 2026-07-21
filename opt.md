@@ -47,6 +47,8 @@ graph.mixal (1920x1080) - second frame
 23. NOT ADDED: Sign opt didn't help too much.
 24. Vector to array
     6.25 fps
+25. Remove timing
+    7.09 fps
 
 # Profiling
 ```
