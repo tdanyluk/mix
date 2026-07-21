@@ -25,6 +25,9 @@ static_assert(sizeof(int) >= 4, "This code requires at least 32 bit int.");
 
 #include "SDL.h"
 
+#define INLINE [[gnu::always_inline]] inline
+#define NOINLINE [[gnu::noinline]]
+
 namespace {
 
 template <typename... Args>
@@ -45,7 +48,7 @@ struct MixException : public std::runtime_error {
 // It is important not to throw directly, because that makes the throwing
 // function large and prevents optimizations/inlining.
 template <typename... Args>
-[[noreturn]] void ThrowMixException(const Args&... args) {
+NOINLINE [[noreturn]] void ThrowMixException(const Args&... args) {
   throw MixException(args...);
 }
 
@@ -151,7 +154,7 @@ struct Word {
     return (data >> shift) & kByteMask;
   }
 
-  Word part(int field) const {
+  INLINE Word part(int field) const {
     if (field == 5) {
       return *this;
     }
@@ -163,7 +166,7 @@ struct Word {
     return result;
   }
 
-  void set_part(int field, Word value) {
+  INLINE void set_part(int field, Word value) {
     if (field == 5) {
       data = value.data;
     }
@@ -397,16 +400,18 @@ char CmpToChar(int cmp_result) {
   return 'G';
 }
 
-int get_m(const State& state, Word instr) {
+INLINE int get_m(const State& state, Word instr) {
   int addr = instr.address();
-  if (instr.index() > 6)
-    ThrowMixException("Invalid index register: ", instr.index());
-  if (instr.index() != 0)
-    addr += state.rI(instr.index()).value();
+  int index = instr.index();
+
+  if (index > 6)
+    ThrowMixException("Invalid index register: ", index);
+  if (index != 0)
+    addr += state.registers[index].value();
   return addr;
 }
 
-int get_address(const State& state, Word instr) {
+INLINE int get_address(const State& state, Word instr) {
   int addr = get_m(state, instr);
   if (addr < 0 || addr >= 4000)
     ThrowMixException("Invalid address: ", addr);
@@ -414,12 +419,12 @@ int get_address(const State& state, Word instr) {
 }
 
 // load V
-Word load_mem_operand_part(const State& state, Word instr) {
-  return state.mem.at(get_address(state, instr)).part(instr.field());
+INLINE Word load_mem_operand_part(const State& state, Word instr) {
+  return state.mem[get_address(state, instr)].part(instr.field());
 }
 
-void store_to_mem_operand_part(State& state, Word instr, Word value) {
-  state.mem.at(get_address(state, instr)).set_part(instr.field(), value);
+INLINE void store_to_mem_operand_part(State& state, Word instr, Word value) {
+  state.mem[get_address(state, instr)].set_part(instr.field(), value);
 }
 
 void CheckNotFloat(Word instr) {
