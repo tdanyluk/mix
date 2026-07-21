@@ -164,6 +164,9 @@ struct Word {
   }
 
   void set_part(int field, Word value) {
+    if(field == 5){
+      data = value.data;
+    }
     auto [left, right] = ToLeftRight(field);
     CheckPartSpec(left, right);
     if (left == 0)

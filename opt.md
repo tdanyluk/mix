@@ -17,6 +17,8 @@ graph.mixal (1920x1080) - second frame
    1.81 fps
 8. part() happy path
    2.28 fps !!!
+9. set_part() happy path
+   2.51 fps !!!
 
 
 # Profiling
