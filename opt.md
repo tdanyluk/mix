@@ -30,6 +30,10 @@ graph.mixal (1920x1080) - second frame
     2.82 fps
 15. Force inline some important functions
     3.19 fps
+16. Fix set_part optimization
+    4.0 fps
+17. No-inline slow paths of part/set_part
+    4.31 fps
 
 
 # Profiling

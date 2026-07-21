@@ -154,10 +154,7 @@ struct Word {
     return (data >> shift) & kByteMask;
   }
 
-  INLINE Word part(int field) const {
-    if (field == 5) {
-      return *this;
-    }
+  NOINLINE Word part_slow(int field) const {
     auto [left, right] = ToLeftRight(field);
     CheckPartSpec(left, right);
     Word result(left == 0 ? sign() : 0, 0);
@@ -166,16 +163,28 @@ struct Word {
     return result;
   }
 
-  INLINE void set_part(int field, Word value) {
+  INLINE Word part(int field) const {
     if (field == 5) {
-      data = value.data;
+      return *this;
     }
+    return part_slow(field);
+  }
+
+  NOINLINE void set_part_slow(int field, Word value) {
     auto [left, right] = ToLeftRight(field);
     CheckPartSpec(left, right);
     if (left == 0)
       set_sign(value.sign());
     for (int i = std::max(left, 1); i <= right; i++)
       set_byte(i, value.byte(5 - (right - i)));
+  }
+
+  INLINE void set_part(int field, Word value) {
+    if (field == 5) {
+      data = value.data;
+      return;
+    }
+    set_part_slow(field, value);
   }
 
   void set_byte(int i, int value) {
