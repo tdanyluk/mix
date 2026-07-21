@@ -19,7 +19,9 @@ graph.mixal (1920x1080) - second frame
    2.28 fps !!!
 9. set_part() happy path
    2.51 fps !!!
-
+10. throw MixException -> ThrowMixException for the remaining
+    2.59 fps
+11. NOT ADDED: using unchecked byte didn't help
 
 # Profiling
 ```

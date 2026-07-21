@@ -88,22 +88,22 @@ LeftRight ToLeftRight(int field) {
 
 void CheckPartSpec(int left, int right) {
   if (left < 0 || left > 5 || right < left || right > 5)
-    throw MixException("Invalid part: ", left, ":", right);
+    ThrowMixException("Invalid part: ", left, ":", right);
 }
 
 void CheckByteValue(int value) {
   if (value < 0 || value > 63)
-    throw MixException("Byte outside range: ", value);
+    ThrowMixException("Byte outside range: ", value);
 }
 
 void CheckByteIndex(int i) {
   if (i < 0 || i > 5)
-    throw MixException("Byte index outside [0, 5]: ", i);
+    ThrowMixException("Byte index outside [0, 5]: ", i);
 }
 
 void Check(bool good, const char* expr_str) {
   if (!good)
-    throw MixException("Assertion failed: ", expr_str);
+    ThrowMixException("Assertion failed: ", expr_str);
 }
 
 #define CHECK(expr) Check(expr, #expr)
