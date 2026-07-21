@@ -254,9 +254,17 @@ INLINE HighLow mul(Word a, Word b) {
 }
 
 INLINE DivRemOverflow div(Word high, Word low, Word divisor) {
-  if (divisor.abs() == 0)
+  if (divisor.abs() == 0) {
     // MIX26 V1
     return {Word(1, 14, 9, 27, 32, 36), Word(1, 0, 0, 0, 25, 31), true};
+  }
+  if (high.abs() == 0) {
+    int32_t abs = low.abs();
+    int32_t div_abs = abs / divisor.abs();
+    int32_t rem_abs = abs % divisor.abs();
+    return {Word(high.sign() * divisor.sign(), div_abs),
+            Word(high.sign(), rem_abs), false};
+  }
   int64_t abs = (int64_t(high.abs()) << 30) | low.abs();
   int64_t div_abs = abs / divisor.abs();
   if (div_abs & ~int64_t(Word::kAbsMask))
@@ -666,7 +674,7 @@ void jred(State& state, Word instr) {
   state.next_instr = get_address(state, instr);  // always ready
 }
 
-bool should_jump(int field, int value, bool overflow) {
+INLINE bool should_jump(int field, int value, bool overflow) {
   switch (field) {
     case kJmpField:
     case kJsjField: return true;
@@ -702,7 +710,7 @@ void jump(State& state, Word instr) {
 
 void reg_jump(State& state, Word instr) {
   int reg_index = instr.code() - kJa;
-  int reg_value = state.registers.at(reg_index).value();
+  int reg_value = state.registers[reg_index].value();
   int field = instr.field();
 
   if (field > kJoddField)

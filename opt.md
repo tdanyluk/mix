@@ -40,6 +40,10 @@ graph.mixal (1920x1080) - second frame
     5.29 fps
 20. Inline add,mul,div,CheckNotFloat, save pointer to mem to locals
     5.62 fps
+21. Div opt (32 bit when possible)
+    5.68 fps
+22. Jmp opt
+    6.1 fps
 
 # Profiling
 ```
