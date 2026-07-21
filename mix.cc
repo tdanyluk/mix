@@ -391,13 +391,16 @@ struct State {
   bool halt = false;
 
   struct StateEx {
-    std::unordered_map<std::string, std::function<void(State&)>> syscalls;
+    std::unordered_map<int, std::function<void(State&)>> syscalls;
     // 0..2 reserved for stdin, stdout, stderr
     std::unordered_map<int, FILE*> file_ptrs;
     std::unique_ptr<Window> window;
     std::unique_ptr<Surface> surface;
     bool show_frame_time = false;
     int64_t last_update_ms = 0;
+    uint32_t* pixels = nullptr;
+    int w = 0;
+    int h = 0;
   } ex;
 };
 
@@ -567,16 +570,22 @@ std::string WordToAscii(Word word, bool skipWs = false) {
   return ascii;
 }
 
-void ioc(State& state, Word instr) {
-  if (instr.field() == kSysCallFieldEx) {
-    int m = get_m(state, instr);
-    std::string name = WordToAscii(state.mem.at(m), /*skipWs=*/true);
-    if (!state.ex.syscalls.count(name))
-      ThrowMixException("Syscall not found: ", name);
-    state.ex.syscalls[name](state);
+INLINE void SetPx(State& state);
+
+INLINE void ioc(State& state, Word instr) {
+  int field = instr.field();
+  if (field == kSysCallFieldEx) {
+    int address = get_address(state, instr);
+    int call = state.mem[address].data;
+    if (call == 370504795) {  // SETPX
+      SetPx(state);
+      return;
+    }
+    state.ex.syscalls[call](state);
     return;
   }
-  if (instr.field() != kLinePrinterField)
+
+  if (field != kLinePrinterField)
     ThrowMixException("IOC is only supported for the line printer (=nop).");
   int m = get_m(state, instr);
   if (m != 0)
@@ -1398,6 +1407,22 @@ void Parse(std::istream& istream, ParserState& state) {
 
 // ---- Syscall ----
 
+int StringToMixInt(const std::string& s) {
+  if (s.size() > 5) {
+    throw MixException("StringToMixWord: too long string ", s);
+  }
+  int res = 0;
+  for (char c : s) {
+    res <<= 6;
+    int mix_char = ToMixChar(c);
+    if (mix_char == -1) {
+      throw MixException("StringToMixWord: Unsupported char ", int(c));
+    }
+    res |= mix_char;
+  }
+  return res;
+}
+
 Word CCharToWord(char c) { return Word(uint8_t(c)); }
 
 char WordToCChar(Word w) {
@@ -1410,7 +1435,7 @@ char WordToCChar(Word w) {
 void AddBasicSyscalls(int argc, char** argv, State& state) {
   // DUMPR: ()->()
   // Debug: Dump registers.
-  state.ex.syscalls["DUMPR"] = [argc, argv](State& state) {
+  state.ex.syscalls[StringToMixInt("DUMPR")] = [argc, argv](State& state) {
     std::cout << "rA: " << state.rA() << "\n";
     std::cout << "rX: " << state.rX() << "\n";
     std::cout << "rI1: " << state.rI(1) << "\n";
@@ -1426,7 +1451,7 @@ void AddBasicSyscalls(int argc, char** argv, State& state) {
 
   // DUMPM: (A: buf, X: bufSize)->()
   // Debug: Dump buffer as numbers and ASCII characters.
-  state.ex.syscalls["DUMPM"] = [argc, argv](State& state) {
+  state.ex.syscalls[StringToMixInt("DUMPM")] = [argc, argv](State& state) {
     int buf = state.rA().value();
     int bufSize = state.rX().value();
 
@@ -1453,7 +1478,7 @@ void AddBasicSyscalls(int argc, char** argv, State& state) {
 
   // DUMPS: (A: buf, X: bufSize)->()
   // Debug: Dump buffer as a string.
-  state.ex.syscalls["DUMPS"] = [argc, argv](State& state) {
+  state.ex.syscalls[StringToMixInt("DUMPS")] = [argc, argv](State& state) {
     int buf = state.rA().value();
     int bufSize = state.rX().value();
 
@@ -1483,13 +1508,13 @@ void AddBasicSyscalls(int argc, char** argv, State& state) {
   };
 
   // ARGC: ()->(A: argc)
-  state.ex.syscalls["ARGC"] = [argc](State& state) {
+  state.ex.syscalls[StringToMixInt("ARGC")] = [argc](State& state) {
     state.rA() = Word(argc - 1);
   };
 
   // ARGV: (A: buf, X: bufSize, I1:argIndex)->(A: wordsWrittenToBuf)
   // Stores each C byte in a MIX word.
-  state.ex.syscalls["ARGV"] = [argc, argv](State& state) {
+  state.ex.syscalls[StringToMixInt("ARGV")] = [argc, argv](State& state) {
     int buf = state.rA().value();
     int bufSize = state.rX().value();
     int argIndex = state.rI(1).value();
@@ -1509,7 +1534,7 @@ void AddBasicSyscalls(int argc, char** argv, State& state) {
 
   // FOPEN: (A: nameBuf, X: nameSize, I1:modeStringLoc)->(A: fileIndex or -1)
   // Mode string is a MIX string
-  state.ex.syscalls["FOPEN"] = [argc, argv](State& state) {
+  state.ex.syscalls[StringToMixInt("FOPEN")] = [argc, argv](State& state) {
     int nameBuf = state.rA().value();
     int nameSize = state.rX().value();
     int modeStringLoc = state.rI(1).value();
@@ -1550,7 +1575,7 @@ void AddBasicSyscalls(int argc, char** argv, State& state) {
   // Stores each C byte in a MIX word.
   // if wordsWrittenToBuf < size then it is either an error or EOF.
   // We can use FERRO to check if it's an error.
-  state.ex.syscalls["FREAD"] = [argc, argv](State& state) {
+  state.ex.syscalls[StringToMixInt("FREAD")] = [argc, argv](State& state) {
     int buf = state.rA().value();
     int size = state.rX().value();
     int fileno = state.rI(1).value();
@@ -1571,7 +1596,7 @@ void AddBasicSyscalls(int argc, char** argv, State& state) {
   };
 
   // FERRO: (I1:fileIndex)->(A: 0 or error)
-  state.ex.syscalls["FERRO"] = [argc, argv](State& state) {
+  state.ex.syscalls[StringToMixInt("FERRO")] = [argc, argv](State& state) {
     int fileno = state.rI(1).value();
 
     if (!state.ex.file_ptrs.count(fileno))
@@ -1586,7 +1611,7 @@ void AddBasicSyscalls(int argc, char** argv, State& state) {
   };
 
   // FCLOS: (I1:fileIndex)->(A: 0 or error)
-  state.ex.syscalls["FCLOS"] = [argc, argv](State& state) {
+  state.ex.syscalls[StringToMixInt("FCLOS")] = [argc, argv](State& state) {
     int fileno = state.rI(1).value();
 
     if (!state.ex.file_ptrs.count(fileno))
@@ -1712,8 +1737,6 @@ Window::~Window() {
 void Window::Update(const Surface& surface) {
   BGI_SDL_CHECK_ZERO(SDL_UpdateTexture(texture_, NULL, surface.pixels.data(),
                                        surface.w * sizeof(Color)));
-  BGI_SDL_CHECK_ZERO(SDL_SetRenderDrawColor(renderer_, 0, 0, 0, 255));
-  BGI_SDL_CHECK_ZERO(SDL_RenderClear(renderer_));
   BGI_SDL_CHECK_ZERO(SDL_RenderCopy(renderer_, texture_, NULL, NULL));
   SDL_RenderPresent(renderer_);
 }
@@ -1732,9 +1755,18 @@ void Window::set_fullscreen(bool full_screen) {
       window_, full_screen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0));
 }
 
+INLINE void SetPx(State& state) {
+  int color = state.rA().value() | 0xff000000u;
+  int x = state.rI(1).value();
+  int y = state.rI(2).value();
+  if (x < 0 || x >= state.ex.w || y < 0 || y >= state.ex.h)
+    ThrowMixException("Invalid pixel: ", x, y);
+  state.ex.pixels[y * state.ex.w + x] = color;
+};
+
 // TODO: Consider: first fill the buffer and then open the window.
 void AddGraphicsSyscalls(State& state) {
-  state.ex.syscalls["INITG"] = [](State& state) {
+  state.ex.syscalls[StringToMixInt("INITG")] = [](State& state) {
     int w = state.rA().value();
     int h = state.rX().value();
     int fullscreen = state.rI(1).value();
@@ -1748,9 +1780,12 @@ void AddGraphicsSyscalls(State& state) {
     std::fill(state.ex.surface->pixels.begin(), state.ex.surface->pixels.end(),
               0xffffffffu);
     state.ex.last_update_ms = SDL_GetTicks();
+    state.ex.pixels = state.ex.surface->pixels.data();
+    state.ex.w = w;
+    state.ex.h = h;
   };
 
-  state.ex.syscalls["UPDAG"] = [](State& state) {
+  state.ex.syscalls[StringToMixInt("UPDAG")] = [](State& state) {
     state.ex.window->Update(*state.ex.surface);
     int64_t time_ms = SDL_GetTicks();
     if (state.ex.show_frame_time) {
@@ -1771,15 +1806,9 @@ void AddGraphicsSyscalls(State& state) {
     state.ex.last_update_ms = time_ms;
   };
 
-  state.ex.syscalls["SETPX"] = [](State& state) {
-    int color = state.rA().value() | 0xff000000u;
-    int x = state.rI(1).value();
-    int y = state.rI(2).value();
-    Surface& surface = *state.ex.surface;
-    surface.pixels[y * surface.w + x] = color;
-  };
+  state.ex.syscalls[StringToMixInt("SETPX")] = SetPx;
 
-  state.ex.syscalls["WAITK"] = [](State& state) {
+  state.ex.syscalls[StringToMixInt("WAITK")] = [](State& state) {
     KeyPress k;
 
     SDL_Event e;
@@ -1801,7 +1830,7 @@ void AddGraphicsSyscalls(State& state) {
     state.rI(2) = Word(k.should_quit);
   };
 
-  state.ex.syscalls["POLLK"] = [](State& state) {
+  state.ex.syscalls[StringToMixInt("POLLK")] = [](State& state) {
     KeyPress k;
     bool has_key = false;
     SDL_Event e;
@@ -1829,11 +1858,11 @@ void AddGraphicsSyscalls(State& state) {
     state.rI(3) = Word(has_key);
   };
 
-  state.ex.syscalls["FRAMT"] = [](State& state) {
+  state.ex.syscalls[StringToMixInt("FRAMT")] = [](State& state) {
     state.ex.show_frame_time = (state.rA().value() != 0);
   };
 
-  state.ex.syscalls["CLOSG"] = [](State& state) {
+  state.ex.syscalls[StringToMixInt("CLOSG")] = [](State& state) {
     SDL_Quit();
     state.ex.window.reset();
     state.ex.surface.reset();

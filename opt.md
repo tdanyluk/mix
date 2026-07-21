@@ -34,7 +34,10 @@ graph.mixal (1920x1080) - second frame
     4.0 fps
 17. No-inline slow paths of part/set_part
     4.31 fps
-
+18. Fix Update
+    4.15 fps
+19. Faster syscalls + SetPx fast path
+    5.29 fps
 
 # Profiling
 ```
