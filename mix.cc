@@ -152,6 +152,9 @@ struct Word {
   }
 
   Word part(int field) const {
+    if (field == 5) {
+      return *this;
+    }
     auto [left, right] = ToLeftRight(field);
     CheckPartSpec(left, right);
     Word result(left == 0 ? sign() : 0, 0);
