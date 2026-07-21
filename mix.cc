@@ -164,7 +164,7 @@ struct Word {
   }
 
   void set_part(int field, Word value) {
-    if(field == 5){
+    if (field == 5) {
       data = value.data;
     }
     auto [left, right] = ToLeftRight(field);
@@ -184,7 +184,10 @@ struct Word {
     data = (data & ~(kByteMask << shift)) | (value << shift);
   }
 
-  int address() const { return part(Field(0, 2)).value(); }
+  int address() const {
+    const int val = (data & kAbsMask) >> 18;
+    return (data & kSignBit) ? -val : val;
+  }
 
   void set_address(int address) {
     if (address <= -64 * 64 || address >= 64 * 64)

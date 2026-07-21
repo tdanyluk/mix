@@ -22,7 +22,9 @@ graph.mixal (1920x1080) - second frame
 10. throw MixException -> ThrowMixException for the remaining
     2.59 fps
 11. NOT ADDED: using unchecked byte didn't help
-
+12. Optimize address()
+    2.75 fps
+    
 # Profiling
 ```
 g++ mix.cc -std=c++17 -O2 -march=native -DNDEBUG -g -o mix_g $(pkg-config --cflags --libs sdl2)
