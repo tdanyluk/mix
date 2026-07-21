@@ -1648,7 +1648,7 @@ void AddGraphicsSyscalls(State& state) {
     BGI_SDL_CHECK_ZERO(SDL_Init(SDL_INIT_VIDEO));
     BGI_WARN_FALSE(SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "nearest"));
 
-    state.ex.window = std::make_unique<Window>("MIX Machine", w, h);
+    state.ex.window = std::make_unique<Window>("MIX Machine", w, h, 1);
     state.ex.window->set_fullscreen(fullscreen);
     state.ex.surface = std::make_unique<Surface>(w, h);
     std::fill(state.ex.surface->pixels.begin(), state.ex.surface->pixels.end(),
