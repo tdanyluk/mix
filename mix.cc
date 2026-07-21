@@ -40,6 +40,13 @@ struct MixException : public std::runtime_error {
       : std::runtime_error(Format(args...)) {}
 };
 
+// It is important not to throw directly, because that makes the throwing
+// function large and prevents optimizations/inlining.
+template <typename... Args>
+[[noreturn]] void ThrowMixException(const Args&... args) {
+  throw MixException(args...);
+}
+
 // clang-format off
 enum OpCode {
   kNop, kAdd, kSub, kMul, kDiv, kSpec, kShift, kMove, kLda, kLd1, kLd2, kLd3,
@@ -108,13 +115,13 @@ struct Word {
 
   explicit Word(int value) {
     if (value < -kAbsMask || value > kAbsMask)
-      throw MixException("Value outside range of Word: ", value);
+      ThrowMixException("Value outside range of Word: ", value);
     data = value < 0 ? (kSignBit | -value) : value;
   }
 
   Word(int sign, int abs) {
     if (abs < 0 || abs > kAbsMask)
-      throw MixException("Invalid abs value: ", abs);
+      ThrowMixException("Invalid abs value: ", abs);
     data = sign < 0 ? (kSignBit | abs) : abs;
   }
 
@@ -173,7 +180,7 @@ struct Word {
 
   void set_address(int address) {
     if (address <= -64 * 64 || address >= 64 * 64)
-      throw MixException("Address outside of range: ", address);
+      ThrowMixException("Address outside of range: ", address);
 
     set_part(Field(0, 2), Word(address));
   }
@@ -382,7 +389,7 @@ char CmpToChar(int cmp_result) {
 int get_m(const State& state, Word instr) {
   int addr = instr.address();
   if (instr.index() > 6)
-    throw MixException("Invalid index register: ", instr.index());
+    ThrowMixException("Invalid index register: ", instr.index());
   if (instr.index() != 0)
     addr += state.rI(instr.index()).value();
   return addr;
@@ -391,7 +398,7 @@ int get_m(const State& state, Word instr) {
 int get_address(const State& state, Word instr) {
   int addr = get_m(state, instr);
   if (addr < 0 || addr >= 4000)
-    throw MixException("Invalid address: ", addr);
+    ThrowMixException("Invalid address: ", addr);
   return addr;
 }
 
@@ -406,7 +413,7 @@ void store_to_mem_operand_part(State& state, Word instr, Word value) {
 
 void CheckNotFloat(Word instr) {
   if (instr.field() == kFloatField)
-    throw MixException("Floating point operations are not supported.");
+    ThrowMixException("Floating point operations are not supported.");
 }
 
 void cycle(State&, Word) {}
@@ -457,13 +464,13 @@ void spec(State& state, Word instr) {
     } break;
     case kHltField: state.halt = true; break;
     default:
-      throw MixException("Unexpected 'spec' field value: ", instr.field());
+      ThrowMixException("Unexpected 'spec' field value: ", instr.field());
   }
 }
 
 HighLow shift(Word a, Word x, int shift, int field) {
   if (shift < 0)
-    throw MixException("Shift value must be non-negative: ", shift);
+    ThrowMixException("Shift value must be non-negative: ", shift);
   switch (field) {
     case kSlaField: return {shift_left(a, shift), x};
     case kSraField: return {shift_left(a, -shift), x};
@@ -473,7 +480,7 @@ HighLow shift(Word a, Word x, int shift, int field) {
     case kSrcField: return shift_left(a, x, -shift, /*cyclic=*/true);
     case kSlbField: return shift_left_binary(a, x, shift);
     case kSrbField: return shift_left_binary(a, x, -shift);
-    default: throw MixException("Unexpected 'shift' field value: ", field);
+    default: ThrowMixException("Unexpected 'shift' field value: ", field);
   }
 }
 
@@ -492,7 +499,7 @@ void move(State& state, Word instr) {
   for (int i = 0; i < num_words; i++) {
     state.mem.at(rI1.value()) = state.mem.at(source_address + i);
     if (rI1.value() + 1 >= 64 * 64)
-      throw MixException("Register overflow would happen: ", rI1.value() + 1);
+      ThrowMixException("Register overflow would happen: ", rI1.value() + 1);
     rI1.set_value(rI1.value() + 1);
   }
 
@@ -503,7 +510,7 @@ void load(State& state, Word instr) {
   int code = instr.code();
   Word value = load_mem_operand_part(state, instr);
   if (code >= kLd1 && code <= kLd6 && value.abs() >= 64 * 64)
-    throw MixException("Index register overflow would happen: ", value);
+    ThrowMixException("Index register overflow would happen: ", value);
   state.registers.at(code - kLda) = value;
 }
 
@@ -511,7 +518,7 @@ void loadn(State& state, Word instr) {
   int code = instr.code();
   Word value = load_mem_operand_part(state, instr);
   if (code >= kLd1n && code <= kLd6n && value.abs() >= 64 * 64)
-    throw MixException("Index register overflow would happen: ", value);
+    ThrowMixException("Index register overflow would happen: ", value);
   state.registers.at(code - kLdan) = -value;
 }
 
@@ -527,7 +534,7 @@ std::string WordToAscii(Word word, bool skipWs = false) {
     int mix_val = word.byte(j);
     int c = ToAsciiChar(mix_val);
     if (c == -1)
-      throw MixException("Couldn't convert to Ascii: ", mix_val);
+      ThrowMixException("Couldn't convert to Ascii: ", mix_val);
     if (skipWs && c == ' ')
       continue;
     ascii.push_back(c);
@@ -540,15 +547,15 @@ void ioc(State& state, Word instr) {
     int m = get_m(state, instr);
     std::string name = WordToAscii(state.mem.at(m), /*skipWs=*/true);
     if (!state.ex.syscalls.count(name))
-      throw MixException("Syscall not found: ", name);
+      ThrowMixException("Syscall not found: ", name);
     state.ex.syscalls[name](state);
     return;
   }
   if (instr.field() != kLinePrinterField)
-    throw MixException("IOC is only supported for the line printer (=nop).");
+    ThrowMixException("IOC is only supported for the line printer (=nop).");
   int m = get_m(state, instr);
   if (m != 0)
-    throw MixException("M must be 0, got: ", m);
+    ThrowMixException("M must be 0, got: ", m);
 }
 
 int WordsByDevice(int device) {
@@ -557,7 +564,7 @@ int WordsByDevice(int device) {
     case kCardPunchField: return bsCard;
     case kLinePrinterField: return bsLinePrinter;
     case KTerminalField: return bsTerminal;
-    default: throw MixException("Unsupported device: ", device);
+    default: ThrowMixException("Unsupported device: ", device);
   }
 }
 
@@ -595,7 +602,7 @@ void in(State& state, Word instr) {
 
   std::string input_str;
   if (std::cin.eof())
-    throw MixException("Could not read line.");
+    ThrowMixException("Could not read line.");
   std::getline(std::cin, input_str);
   if ((int)input_str.size() > max_size) {
     std::cerr << "Warning: Truncating long line.\n";
@@ -639,7 +646,7 @@ bool should_jump(int field, int value, bool overflow) {
     case kJleField: return value <= 0;  // kJlField + kJnpField
     case kJlField + kJevenField: return value ^ 1;
     case kJlField + kJoddField: return value & 1;
-    default: throw MixException("Bad jump field: ", field);
+    default: ThrowMixException("Bad jump field: ", field);
   }
 }
 
@@ -647,7 +654,7 @@ void jump(State& state, Word instr) {
   int field = instr.field();
 
   if (field > kJleField)
-    throw MixException("Bad jump field: ", field);
+    ThrowMixException("Bad jump field: ", field);
 
   if (should_jump(field, state.cmp_result, state.overflow)) {
     if (field != kJsjField)
@@ -665,7 +672,7 @@ void reg_jump(State& state, Word instr) {
   int field = instr.field();
 
   if (field > kJoddField)
-    throw MixException("Bad register jump field: ", field);
+    ThrowMixException("Bad register jump field: ", field);
 
   if (should_jump(field + kJlField, reg_value, state.overflow)) {
     state.rJ() = Word(state.next_instr);
@@ -679,7 +686,7 @@ WordOverflow addr_op(Word a, Word b, int field) {
     case kDecField: return add(a, -b);
     case kEntField: return {b, false};
     case kEnnField: return {-b, false};
-    default: throw MixException("Bad addr_op field: ", field);
+    default: ThrowMixException("Bad addr_op field: ", field);
   }
 }
 
@@ -694,7 +701,7 @@ void addr_op(State& state, Word instr) {
 
   if (code >= kAddrOp1 && code <= kAddrOp6)
     if (overflow || word.abs() >= 64 * 64)
-      throw MixException("Index register overflow would happen.");
+      ThrowMixException("Index register overflow would happen.");
 
   target_reg = word;
   state.overflow |= overflow;
@@ -735,7 +742,7 @@ void SimulateMix(State& state) {
     while (!state.halt) {
       last_instruction = state.next_instr;
       if (state.next_instr < 0 || state.next_instr >= (int)state.mem.size())
-        throw MixException(
+        ThrowMixException(
             "Instruction counter outside range. Did you forget to HLT?\n");
       Word instr = state.mem.at(state.next_instr++);
       OpDesc op = op_table.at(instr.code());
@@ -828,7 +835,7 @@ bool IsLocalSymbolReference(const std::string& s) {
 
 int GetLocalSymbolIndex(const std::string& s) {
   if (!IsLocalSymbol(s))
-    throw MixException("Local symbol expected");
+    ThrowMixException("Local symbol expected");
   return s[0] - '0';
 }
 
@@ -837,7 +844,7 @@ std::string ParseLoc(std::stringstream& stream) {
   if (!std::isspace(stream.peek())) {
     stream >> loc;
     if (!IsAlnum(loc) || IsNumber(loc))
-      throw MixException("Invalid loc: ", loc);
+      ThrowMixException("Invalid loc: ", loc);
   }
   return loc;
 }
@@ -852,7 +859,7 @@ Word ParseAlf(std::stringstream& stream) {
     return Word(0);
 
   if (!std::isspace(stream.get()))
-    throw MixException("Whitespace expected after ALF");
+    ThrowMixException("Whitespace expected after ALF");
 
   // This is a GNU extension:
   bool quoted = false;
@@ -870,7 +877,7 @@ Word ParseAlf(std::stringstream& stream) {
   }
 
   if (quoted && stream.get() != '"')
-    throw MixException("Expected \"");
+    ThrowMixException("Expected \"");
 
   if (!IsSpaceOrEof(stream.peek()))
     std::cerr << "Warning: Non-space character right after ALF string\n";
@@ -883,8 +890,8 @@ Word ParseAlf(std::stringstream& stream) {
   for (int i = 0; i < 5; i++) {
     int value = ToMixChar(str[i]);
     if (value == -1)
-      throw MixException("Unexpected char in ALF string: ", str[i], " (",
-                         (int)(unsigned char)str[i], ")");
+      ThrowMixException("Unexpected char in ALF string: ", str[i], " (",
+                        (int)(unsigned char)str[i], ")");
     word.set_byte(1 + i, value);
   }
   return word;
@@ -895,27 +902,27 @@ std::string ParseSymbolOrNum(std::stringstream& stream) {
   while (std::isalnum(stream.peek()))
     s.push_back(stream.get());
   if (s.size() > 10)
-    throw MixException("Symbol or number longer than 10 characters: ", s);
+    ThrowMixException("Symbol or number longer than 10 characters: ", s);
   return s;
 }
 
 std::string ResolveBackwardLocalSymbolReference(const std::string& ref,
                                                 const ParserState& state) {
   if (!IsLocalSymbol(ref))
-    throw MixException("Local symbol expected");
+    ThrowMixException("Local symbol expected");
   int i = GetLocalSymbolIndex(ref);
   int j = state.next_local_ref[i] - 1;
   if (state.increased_local_ref == i)
     j--;
   if (j < 0)
-    throw MixException("Local symbol not yet defined: ", i, "H");
+    ThrowMixException("Local symbol not yet defined: ", i, "H");
   return Format(i, "H#", j);
 }
 
 std::string ResolveForwardLocalSymbolReference(const std::string& ref,
                                                const ParserState& state) {
   if (!IsLocalSymbol(ref))
-    throw MixException("Local symbol expected");
+    ThrowMixException("Local symbol expected");
   int i = GetLocalSymbolIndex(ref);
   int j = state.next_local_ref[i];
   return Format(i, "H#", j);
@@ -924,7 +931,7 @@ std::string ResolveForwardLocalSymbolReference(const std::string& ref,
 std::string ResolveLocalSymbolDefinition(const std::string& def,
                                          ParserState& state) {
   if (!IsLocalSymbol(def))
-    throw MixException("Local symbol expected");
+    ThrowMixException("Local symbol expected");
   int i = GetLocalSymbolIndex(def);
   int j = state.next_local_ref[i]++;
   state.increased_local_ref = i;
@@ -941,18 +948,18 @@ Word ParseAtomicExpression(std::stringstream& stream,
     if (IsNumber(s))
       return Word(std::stoi(s));
     if (IsLocalSymbolDefinition(s))
-      throw MixException(
+      ThrowMixException(
           "Local symbol definition cannot appear in an expression.");
     if (IsForwardLocalSymbolReference(s))
-      throw MixException(
+      ThrowMixException(
           "Forward local symbol reference cannot appear in an expression.");
     if (IsBackwardLocalSymbolReference(s))
       s = ResolveBackwardLocalSymbolReference(s, state);
     if (!state.symbol_table.count(s))
-      throw MixException("Undefined symbol: ", s);
+      ThrowMixException("Undefined symbol: ", s);
     return state.symbol_table.at(s);
   }
-  throw MixException("Atomic expression expected.");
+  ThrowMixException("Atomic expression expected.");
 }
 
 Word ParsePlusMinusAtomicExpression(std::stringstream& stream,
@@ -1001,7 +1008,7 @@ WordOverflow EvaluateBinaryOp(int op, Word a, Word b) {
       auto [c, overflow] = add(low, b);
       return {c, high.value() != 0 || overflow};
     }
-    default: throw MixException("Unknown binary op: ", op);
+    default: ThrowMixException("Unknown binary op: ", op);
   }
 }
 
@@ -1013,7 +1020,7 @@ Word ParseExpressionTail(std::stringstream& stream, const ParserState& state,
     bool overflow;
     std::tie(head, overflow) = EvaluateBinaryOp(op, head, b);
     if (overflow)
-      throw MixException("Overflow in binary op: ", op);
+      ThrowMixException("Overflow in binary op: ", op);
   }
   return head;
 }
@@ -1036,12 +1043,12 @@ FutureRef ParseLiteralConstant(std::stringstream& stream) {
   int c;
   while ((c = stream.get()) != '=') {
     if (c == EOF)
-      throw MixException("Expected = to close literal constant");
+      ThrowMixException("Expected = to close literal constant");
     s.push_back(c);
   }
   s.push_back('=');
   // if (s.size() > 12)
-  //   throw MixException("Literal constant too long: ", s);
+  //   ThrowMixException("Literal constant too long: ", s);
   return s;
 }
 
@@ -1051,7 +1058,7 @@ std::variant<int, FutureRef> ParseAPart(std::stringstream& stream,
   if (std::isalnum(stream.peek())) {
     std::string s = ParseSymbolOrNum(stream);
     if (s.empty())
-      throw MixException("Symbol should not be empty here.");
+      ThrowMixException("Symbol should not be empty here.");
     if (IsForwardLocalSymbolReference(s))
       return ResolveForwardLocalSymbolReference(s, state);
     if (!IsNumber(s) && !IsLocalSymbol(s) && !state.symbol_table.count(s))
@@ -1083,7 +1090,7 @@ int ParseFPart(std::stringstream& stream, ParserState& state,
   stream.ignore();
   Word w = ParseExpression(stream, state);
   if (stream.get() != ')')
-    throw MixException("Expected ')'.");
+    ThrowMixException("Expected ')'.");
   return w.value();
 }
 
@@ -1107,18 +1114,18 @@ Word ParseWValue(std::stringstream& stream, ParserState& state) {
     Word b = ParseExpression(stream, state);
     int f = ParseFPart(stream, state, Field(0, 5));
     if (!IsValidPart(f))
-      throw MixException("Invalid field.");
+      ThrowMixException("Invalid field.");
     a.set_part(f, b);
   } while (ParseComma(stream));
   if (!IsSpaceOrEof(stream.peek()))
-    throw MixException("W-value must be followed by whitespace or EOF, found: ",
-                       (char)stream.peek());
+    ThrowMixException("W-value must be followed by whitespace or EOF, found: ",
+                      (char)stream.peek());
   return a;
 }
 
 Word EvaluateLiteralConstant(const std::string& s, ParserState& state) {
   if (!IsLiteralConstant(s))
-    throw MixException("Literal expected: ", s);
+    ThrowMixException("Literal expected: ", s);
   try {
     std::stringstream stream(s.substr(1, s.size() - 2));
     return ParseWValue(stream, state);
@@ -1215,9 +1222,8 @@ Word ParseOpParam(std::stringstream& stream, ParserState& state,
     state.future_ref_locations.push_back({ref, state.location});
   }
   if (!IsSpaceOrEof(stream.peek()))
-    throw MixException(
-        "OP field must be followed by whitespace or EOF, found: ",
-        (char)stream.peek());
+    ThrowMixException("OP field must be followed by whitespace or EOF, found: ",
+                      (char)stream.peek());
   return w;
 }
 
@@ -1228,14 +1234,14 @@ void ParseLine(std::stringstream& stream, ParserState& state) {
     if (IsLocalSymbolDefinition(loc))
       loc = ResolveLocalSymbolDefinition(loc, state);
     if (IsLocalSymbolReference(loc))
-      throw MixException("LOC field cannot contain local symbol reference");
+      ThrowMixException("LOC field cannot contain local symbol reference");
     if (state.symbol_table.count(loc))
-      throw MixException("Redefining symbol: ", loc);
+      ThrowMixException("Redefining symbol: ", loc);
   }
   std::string op;
   stream >> op;
   if (op.empty())
-    throw MixException("Empty op");
+    ThrowMixException("Empty op");
   if (op == "ALF") {
     if (!loc.empty())
       state.symbol_table[loc] = Word(state.location);
@@ -1274,7 +1280,7 @@ void ParseLine(std::stringstream& stream, ParserState& state) {
     ResolveAddressPartOfFutureRefLocations(state);
     return;
   }
-  throw MixException("Unknown op: ", op);
+  ThrowMixException("Unknown op: ", op);
 }
 
 void Parse(std::istream& istream, ParserState& state) {
@@ -1308,7 +1314,7 @@ Word CCharToWord(char c) { return Word(uint8_t(c)); }
 
 char WordToCChar(Word w) {
   if (w.value() < 0 || w.value() > 255) {
-    throw MixException("C Byte outside range.");
+    ThrowMixException("C Byte outside range.");
   }
   return char(uint8_t(w.value()));
 }
@@ -1401,8 +1407,8 @@ void AddBasicSyscalls(int argc, char** argv, State& state) {
     int argIndex = state.rI(1).value();
 
     if (argIndex < 0 || argIndex >= (argc - 1)) {
-      throw MixException("Invalid argument number: ", argIndex,
-                         ", allowed range: [0..", argc - 2, "]");
+      ThrowMixException("Invalid argument number: ", argIndex,
+                        ", allowed range: [0..", argc - 2, "]");
     }
 
     int length = strlen(argv[argIndex + 1]);
@@ -1421,14 +1427,14 @@ void AddBasicSyscalls(int argc, char** argv, State& state) {
     int modeStringLoc = state.rI(1).value();
 
     if (modeStringLoc < 0 || modeStringLoc >= state.mem.size())
-      throw MixException("Invalid mode string location");
+      ThrowMixException("Invalid mode string location");
     std::string mode =
         ToLower(WordToAscii(state.mem.at(modeStringLoc), /*skipWs=*/true));
 
     std::string name;
     name.reserve(nameSize);
     if (nameBuf + nameSize >= state.mem.size())
-      throw MixException("Name buffer extends outside of memory");
+      ThrowMixException("Name buffer extends outside of memory");
     for (int i = 0; i < nameSize; i++)
       name.push_back(WordToCChar(state.mem.at(nameBuf + i)));
 
@@ -1446,7 +1452,7 @@ void AddBasicSyscalls(int argc, char** argv, State& state) {
       }
     }
     if (i >= maxIndex)
-      throw MixException("Too many files are open.");
+      ThrowMixException("Too many files are open.");
 
     state.ex.file_ptrs[i] = f;
     state.rA() = Word(i);
@@ -1462,7 +1468,7 @@ void AddBasicSyscalls(int argc, char** argv, State& state) {
     int fileno = state.rI(1).value();
 
     if (!state.ex.file_ptrs.count(fileno))
-      throw MixException("File number not found: ", fileno);
+      ThrowMixException("File number not found: ", fileno);
     FILE* f = state.ex.file_ptrs[fileno];
 
     // TODO: not allocate all the time.
@@ -1481,7 +1487,7 @@ void AddBasicSyscalls(int argc, char** argv, State& state) {
     int fileno = state.rI(1).value();
 
     if (!state.ex.file_ptrs.count(fileno))
-      throw MixException("File number not found: ", fileno);
+      ThrowMixException("File number not found: ", fileno);
     FILE* f = state.ex.file_ptrs[fileno];
 
     int result = ferror(f);
@@ -1496,7 +1502,7 @@ void AddBasicSyscalls(int argc, char** argv, State& state) {
     int fileno = state.rI(1).value();
 
     if (!state.ex.file_ptrs.count(fileno))
-      throw MixException("File number not found: ", fileno);
+      ThrowMixException("File number not found: ", fileno);
 
     int result = fclose(state.ex.file_ptrs[fileno]);
     state.ex.file_ptrs.erase(fileno);

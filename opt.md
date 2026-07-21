@@ -7,3 +7,5 @@ graph.mixal (1920x1080) - second frame
    1.38 fps !!!
 4. g++ mix.cc -std=c++17 -O3 -march=native -flto -DNDEBUG -o mix $(pkg-config --cflags --libs sdl2)
    1.46 fps
+5. throw MixException -> ThrowMixException
+   1.66 fps
