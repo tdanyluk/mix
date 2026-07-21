@@ -389,13 +389,13 @@ struct State {
   Word& rJ() { return registers[8]; }
   Word rJ() const { return registers[8]; }
 
-  std::vector<Word> registers = std::vector<Word>(10);
+  std::array<Word, 10> registers = {};
   int next_instr = 0;
   // <0: lt, =0: eq, >0: gt
   int cmp_result = 0;
   bool overflow = false;
   int64_t time = 0;
-  std::vector<Word> mem = std::vector<Word>(4000);
+  std::array<Word, 4000> mem = {};
   bool halt = false;
 
   struct StateEx {
@@ -756,7 +756,7 @@ void compare(State& state, Word instr) {
 }
 
 // clang-format off
-const std::vector<int> op_time = {
+const std::array<int, kNumOpCodes> op_time = {
     /*kNop:*/ 1, /*kAdd:*/ 2, /*kSub:*/ 2, /*kMul:*/ 10, /*kDiv:*/ 12,
     /*kSpec:*/ 10, /*kShift:*/ 2, /*kMove:*/ 1, /*kLda:*/ 2, /*kLd1:*/ 2,
     /*kLd2:*/ 2, /*kLd3:*/ 2, /*kLd4:*/ 2, /*kLd5:*/ 2, /*kLd6:*/ 2,
@@ -871,7 +871,7 @@ using FutureRefLocation = std::pair<FutureRef, int>;
 struct ParserState {
   std::unordered_map<std::string, Word> symbol_table;
   int location = 0;
-  std::vector<Word> mem = std::vector<Word>(4000);
+  std::array<Word, 4000> mem = {};
   int start_location = -1;
   int increased_local_ref = -1;
   std::vector<int> next_local_ref = std::vector<int>(10);
@@ -1888,23 +1888,23 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  ParserState parser_state;
+  auto parser_state = std::make_unique<ParserState>();
   std::ifstream f(argv[1]);
   if (!f.is_open()) {
     std::cerr << "error: could not open file " << argv[1] << "\n";
     return 1;
   }
 
-  Parse(f, parser_state);
+  Parse(f, *parser_state);
   f.close();
 
-  if (!parser_state.had_error) {
-    State state;
-    state.mem = std::move(parser_state.mem);
-    state.next_instr = parser_state.start_location;
-    AddBasicSyscalls(argc, argv, state);
-    AddGraphicsSyscalls(state);
-    SimulateMix(state);
+  if (!parser_state->had_error) {
+    auto state = std::make_unique<State>();
+    state->mem = std::move(parser_state->mem);
+    state->next_instr = parser_state->start_location;
+    AddBasicSyscalls(argc, argv, *state);
+    AddGraphicsSyscalls(*state);
+    SimulateMix(*state);
   }
 
   return 0;

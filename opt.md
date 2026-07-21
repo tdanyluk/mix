@@ -44,6 +44,9 @@ graph.mixal (1920x1080) - second frame
     5.68 fps
 22. Jmp opt
     6.1 fps
+23. NOT ADDED: Sign opt didn't help too much.
+24. Vector to array
+    6.25 fps
 
 # Profiling
 ```
@@ -51,6 +54,3 @@ g++ mix.cc -std=c++17 -O2 -march=native -DNDEBUG -g -o mix_g $(pkg-config --cfla
 /usr/lib/linux-tools/5.4.0-216-generic/perf record -g ./mix_g custom/graph.mixal
 /usr/lib/linux-tools/5.4.0-216-generic/perf report
 ```
-
-# TODO
-Vector to array
