@@ -1665,10 +1665,9 @@ void AddGraphicsSyscalls(State& state) {
         std::ostringstream formatted;
         formatted << std::fixed << std::setprecision(2);
         formatted << "Frame: " << diff_ms << " ms";
+        formatted << " " << (1000.0f / diff_ms) << " fps";
         if (diff_ms > 1000) {
           formatted << " " << (diff_ms / 1000.0f) << " spf";
-        } else {
-          formatted << " " << (1000.0f / diff_ms) << " fps";
         }
         std::cout << formatted.str() << std::endl;
       } else {
