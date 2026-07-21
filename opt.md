@@ -12,6 +12,9 @@ graph.mixal (1920x1080) - second frame
    1.66 fps
 5. op table -> switch
    1.79 fps
+6. added unnamed namespace
+   seems equivalent with -flto
+   1.81 fps
 
 # Profiling
 ```

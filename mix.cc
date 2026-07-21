@@ -25,6 +25,8 @@ static_assert(sizeof(int) >= 4, "This code requires at least 32 bit int.");
 
 #include "SDL.h"
 
+namespace {
+
 template <typename... Args>
 std::string Format(const Args&... args) {
   std::stringstream stream;
@@ -1814,6 +1816,8 @@ void AddGraphicsSyscalls(State& state) {
     state.ex.surface.reset();
   };
 }
+
+}  // namespace
 
 int main(int argc, char** argv) {
   if (argc < 2) {
