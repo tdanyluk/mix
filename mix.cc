@@ -399,7 +399,8 @@ struct State {
   bool halt = false;
 
   struct StateEx {
-    std::unordered_map<int, std::function<void(State&)>> syscalls;
+    using Syscall = void (*)(State&);
+    std::unordered_map<int, Syscall> syscalls;
     // 0..2 reserved for stdin, stdout, stderr
     std::unordered_map<int, FILE*> file_ptrs;
     std::unique_ptr<Window> window;
@@ -1443,195 +1444,211 @@ char WordToCChar(Word w) {
   return char(uint8_t(w.value()));
 }
 
+int g_argc = 0;
+char** g_argv = nullptr;
+
+// DUMPR: ()->()
+// Debug: Dump registers.
+void DumpRegisters(State& state) {
+  std::cout << "rA: " << state.rA() << "\n";
+  std::cout << "rX: " << state.rX() << "\n";
+  std::cout << "rI1: " << state.rI(1) << "\n";
+  std::cout << "rI2: " << state.rI(2) << "\n";
+  std::cout << "rI3: " << state.rI(3) << "\n";
+  std::cout << "rI4: " << state.rI(4) << "\n";
+  std::cout << "rI5: " << state.rI(5) << "\n";
+  std::cout << "rI6: " << state.rI(6) << "\n";
+  std::cout << "rJ: " << state.rJ() << "\n";
+  std::cout << "OV: " << (state.overflow ? 1 : 0) << "\n";
+  std::cout << "CMP: " << CmpToChar(state.cmp_result) << "\n";
+}
+
+// DUMPM: (A: buf, X: bufSize)->()
+// Debug: Dump buffer as numbers and ASCII characters.
+void DumpMemory(State& state) {
+  int buf = state.rA().value();
+  int bufSize = state.rX().value();
+
+  for (int i = 0; i < bufSize && buf + i < state.mem.size(); ++i) {
+    Word w = state.mem.at(buf + i);
+    std::cout << "mem[" << (buf + i) << "]=" << std::setw(3) << w << " ";
+    int val = w.value();
+    if (val >= 0 && val <= 255 && isgraph(val)) {
+      std::cout << char(uint8_t(val));
+    } else if (val == ' ') {
+      std::cout << " ";
+    } else if (val == '\n') {
+      std::cout << "\\n";
+    } else if (val == '\r') {
+      std::cout << "\\r";
+    } else if (val == '\t') {
+      std::cout << "\\t";
+    } else {
+      std::cout << " ??";
+    }
+    std::cout << "\n";
+  }
+}
+
+// DUMPS: (A: buf, X: bufSize)->()
+// Debug: Dump buffer as a string.
+void DumpString(State& state) {
+  int buf = state.rA().value();
+  int bufSize = state.rX().value();
+
+  std::cout << '\"';
+  for (int i = 0; i < bufSize && buf + i < state.mem.size(); ++i) {
+    Word w = state.mem.at(buf + i);
+    int val = w.value();
+    if (val >= 0 && val <= 255 && isgraph(val) && val != '"' && val != '\\') {
+      std::cout << char(uint8_t(val));
+    } else if (val == ' ') {
+      std::cout << " ";
+    } else if (val == '"') {
+      std::cout << "\\\"";
+    } else if (val == '\\') {
+      std::cout << "\\\\";
+    } else if (val == '\n') {
+      std::cout << "\\n";
+    } else if (val == '\r') {
+      std::cout << "\\r";
+    } else if (val == '\t') {
+      std::cout << "\\t";
+    } else {
+      std::cout << "?";
+    }
+  }
+  std::cout << "\"\n";
+}
+
+// ARGC: ()->(A: argc)
+void GetArgc(State& state) { state.rA() = Word(g_argc - 1); };
+
+// ARGV: (A: buf, X: bufSize, I1:argIndex)->(A: argLength)
+// Stores each C byte in a MIX word.
+// If the arg is longer than bufSize, only bufSize bytes are written but
+// argLength is still returned.
+void GetArg(State& state) {
+  int buf = state.rA().value();
+  int bufSize = state.rX().value();
+  int argIndex = state.rI(1).value();
+
+  if (argIndex < 0 || argIndex >= (g_argc - 1)) {
+    ThrowMixException("Invalid argument number: ", argIndex,
+                      ", allowed range: [0..", g_argc - 2, "]");
+  }
+
+  int length = strlen(g_argv[argIndex + 1]);
+  for (int i = 0; i < length && i < bufSize && buf + i < state.mem.size();
+       i++) {
+    state.mem.at(buf + i) = CCharToWord(g_argv[argIndex + 1][i]);
+  }
+  state.rA() = Word(length);
+}
+
+// FOPEN: (A: nameBuf, X: nameSize, I1:modeStringLoc)->(A: fileIndex or -1)
+// Mode string is a MIX string.
+void FOpen(State& state) {
+  int nameBuf = state.rA().value();
+  int nameSize = state.rX().value();
+  int modeStringLoc = state.rI(1).value();
+
+  if (modeStringLoc < 0 || modeStringLoc >= state.mem.size())
+    ThrowMixException("Invalid mode string location");
+  std::string mode =
+      ToLower(WordToAscii(state.mem.at(modeStringLoc), /*skipWs=*/true));
+
+  std::string name;
+  name.reserve(nameSize);
+  if (nameBuf + nameSize >= state.mem.size())
+    ThrowMixException("Name buffer extends outside of memory");
+  for (int i = 0; i < nameSize; i++)
+    name.push_back(WordToCChar(state.mem.at(nameBuf + i)));
+
+  FILE* f = fopen(name.c_str(), mode.c_str());
+  if (f == nullptr) {
+    state.rA() = Word(-1);
+    return;
+  }
+
+  constexpr int maxIndex = 4000;
+  int i;
+  for (i = 3; i < maxIndex; i++) {
+    if (!state.ex.file_ptrs.count(i)) {
+      break;
+    }
+  }
+  if (i >= maxIndex)
+    ThrowMixException("Too many files are open.");
+
+  state.ex.file_ptrs[i] = f;
+  state.rA() = Word(i);
+}
+
+// FREAD: (A: buf, X: size, I1:fileIndex)->(A: wordsWrittenToBuf)
+// Stores each C byte in a MIX word.
+// if wordsWrittenToBuf < size then it is either an error or EOF.
+// We can use FERRO to check if it's an error.
+void FRead(State& state) {
+  int buf = state.rA().value();
+  int size = state.rX().value();
+  int fileno = state.rI(1).value();
+
+  if (!state.ex.file_ptrs.count(fileno))
+    ThrowMixException("File number not found: ", fileno);
+  FILE* f = state.ex.file_ptrs[fileno];
+
+  // TODO: not allocate all the time.
+  std::vector<char> cBuf(size, 0);
+  int result = fread(cBuf.data(), 1, size, f);
+
+  for (int i = 0; i < result && buf + i < state.mem.size(); i++) {
+    state.mem.at(buf + i) = CCharToWord(cBuf[i]);
+  }
+
+  state.rA() = Word(result);
+}
+
+// FERRO: (I1:fileIndex)->(A: 0 or error)
+void FError(State& state) {
+  int fileno = state.rI(1).value();
+
+  if (!state.ex.file_ptrs.count(fileno))
+    ThrowMixException("File number not found: ", fileno);
+  FILE* f = state.ex.file_ptrs[fileno];
+
+  int result = ferror(f);
+  if (result < -Word::kAbsMask || result > Word::kAbsMask)
+    result = -1;
+
+  state.rA() = Word(result);
+}
+
+// FCLOS: (I1:fileIndex)->(A: 0 or error)
+void FClose(State& state) {
+  int fileno = state.rI(1).value();
+
+  if (!state.ex.file_ptrs.count(fileno))
+    ThrowMixException("File number not found: ", fileno);
+
+  int result = fclose(state.ex.file_ptrs[fileno]);
+  state.ex.file_ptrs.erase(fileno);
+  state.rA() = Word(result);
+}
+
 void AddBasicSyscalls(int argc, char** argv, State& state) {
-  // DUMPR: ()->()
-  // Debug: Dump registers.
-  state.ex.syscalls[StringToMixInt("DUMPR")] = [argc, argv](State& state) {
-    std::cout << "rA: " << state.rA() << "\n";
-    std::cout << "rX: " << state.rX() << "\n";
-    std::cout << "rI1: " << state.rI(1) << "\n";
-    std::cout << "rI2: " << state.rI(2) << "\n";
-    std::cout << "rI3: " << state.rI(3) << "\n";
-    std::cout << "rI4: " << state.rI(4) << "\n";
-    std::cout << "rI5: " << state.rI(5) << "\n";
-    std::cout << "rI6: " << state.rI(6) << "\n";
-    std::cout << "rJ: " << state.rJ() << "\n";
-    std::cout << "OV: " << (state.overflow ? 1 : 0) << "\n";
-    std::cout << "CMP: " << CmpToChar(state.cmp_result) << "\n";
-  };
+  // Debug:
+  state.ex.syscalls[StringToMixInt("DUMPR")] = DumpRegisters;
+  state.ex.syscalls[StringToMixInt("DUMPM")] = DumpMemory;
+  state.ex.syscalls[StringToMixInt("DUMPS")] = DumpString;
 
-  // DUMPM: (A: buf, X: bufSize)->()
-  // Debug: Dump buffer as numbers and ASCII characters.
-  state.ex.syscalls[StringToMixInt("DUMPM")] = [argc, argv](State& state) {
-    int buf = state.rA().value();
-    int bufSize = state.rX().value();
+  state.ex.syscalls[StringToMixInt("ARGC")] = GetArgc;
+  state.ex.syscalls[StringToMixInt("ARGV")] = GetArg;
 
-    for (int i = 0; i < bufSize && buf + i < state.mem.size(); ++i) {
-      Word w = state.mem.at(buf + i);
-      std::cout << "mem[" << (buf + i) << "]=" << std::setw(3) << w << " ";
-      int val = w.value();
-      if (val >= 0 && val <= 255 && isgraph(val)) {
-        std::cout << char(uint8_t(val));
-      } else if (val == ' ') {
-        std::cout << " ";
-      } else if (val == '\n') {
-        std::cout << "\\n";
-      } else if (val == '\r') {
-        std::cout << "\\r";
-      } else if (val == '\t') {
-        std::cout << "\\t";
-      } else {
-        std::cout << " ??";
-      }
-      std::cout << "\n";
-    }
-  };
-
-  // DUMPS: (A: buf, X: bufSize)->()
-  // Debug: Dump buffer as a string.
-  state.ex.syscalls[StringToMixInt("DUMPS")] = [argc, argv](State& state) {
-    int buf = state.rA().value();
-    int bufSize = state.rX().value();
-
-    std::cout << '\"';
-    for (int i = 0; i < bufSize && buf + i < state.mem.size(); ++i) {
-      Word w = state.mem.at(buf + i);
-      int val = w.value();
-      if (val >= 0 && val <= 255 && isgraph(val) && val != '"' && val != '\\') {
-        std::cout << char(uint8_t(val));
-      } else if (val == ' ') {
-        std::cout << " ";
-      } else if (val == '"') {
-        std::cout << "\\\"";
-      } else if (val == '\\') {
-        std::cout << "\\\\";
-      } else if (val == '\n') {
-        std::cout << "\\n";
-      } else if (val == '\r') {
-        std::cout << "\\r";
-      } else if (val == '\t') {
-        std::cout << "\\t";
-      } else {
-        std::cout << "?";
-      }
-    }
-    std::cout << "\"\n";
-  };
-
-  // ARGC: ()->(A: argc)
-  state.ex.syscalls[StringToMixInt("ARGC")] = [argc](State& state) {
-    state.rA() = Word(argc - 1);
-  };
-
-  // ARGV: (A: buf, X: bufSize, I1:argIndex)->(A: wordsWrittenToBuf)
-  // Stores each C byte in a MIX word.
-  state.ex.syscalls[StringToMixInt("ARGV")] = [argc, argv](State& state) {
-    int buf = state.rA().value();
-    int bufSize = state.rX().value();
-    int argIndex = state.rI(1).value();
-
-    if (argIndex < 0 || argIndex >= (argc - 1)) {
-      ThrowMixException("Invalid argument number: ", argIndex,
-                        ", allowed range: [0..", argc - 2, "]");
-    }
-
-    int length = strlen(argv[argIndex + 1]);
-    for (int i = 0; i < length && i < bufSize && buf + i < state.mem.size();
-         i++) {
-      state.mem.at(buf + i) = CCharToWord(argv[argIndex + 1][i]);
-    }
-    state.rA() = Word(length);
-  };
-
-  // FOPEN: (A: nameBuf, X: nameSize, I1:modeStringLoc)->(A: fileIndex or -1)
-  // Mode string is a MIX string
-  state.ex.syscalls[StringToMixInt("FOPEN")] = [argc, argv](State& state) {
-    int nameBuf = state.rA().value();
-    int nameSize = state.rX().value();
-    int modeStringLoc = state.rI(1).value();
-
-    if (modeStringLoc < 0 || modeStringLoc >= state.mem.size())
-      ThrowMixException("Invalid mode string location");
-    std::string mode =
-        ToLower(WordToAscii(state.mem.at(modeStringLoc), /*skipWs=*/true));
-
-    std::string name;
-    name.reserve(nameSize);
-    if (nameBuf + nameSize >= state.mem.size())
-      ThrowMixException("Name buffer extends outside of memory");
-    for (int i = 0; i < nameSize; i++)
-      name.push_back(WordToCChar(state.mem.at(nameBuf + i)));
-
-    FILE* f = fopen(name.c_str(), mode.c_str());
-    if (f == nullptr) {
-      state.rA() = Word(-1);
-      return;
-    }
-
-    constexpr int maxIndex = 4000;
-    int i;
-    for (i = 3; i < maxIndex; i++) {
-      if (!state.ex.file_ptrs.count(i)) {
-        break;
-      }
-    }
-    if (i >= maxIndex)
-      ThrowMixException("Too many files are open.");
-
-    state.ex.file_ptrs[i] = f;
-    state.rA() = Word(i);
-  };
-
-  // FREAD: (A: buf, X: size, I1:fileIndex)->(A: wordsWrittenToBuf)
-  // Stores each C byte in a MIX word.
-  // if wordsWrittenToBuf < size then it is either an error or EOF.
-  // We can use FERRO to check if it's an error.
-  state.ex.syscalls[StringToMixInt("FREAD")] = [argc, argv](State& state) {
-    int buf = state.rA().value();
-    int size = state.rX().value();
-    int fileno = state.rI(1).value();
-
-    if (!state.ex.file_ptrs.count(fileno))
-      ThrowMixException("File number not found: ", fileno);
-    FILE* f = state.ex.file_ptrs[fileno];
-
-    // TODO: not allocate all the time.
-    std::vector<char> cBuf(size, 0);
-    int result = fread(cBuf.data(), 1, size, f);
-
-    for (int i = 0; i < result && buf + i < state.mem.size(); i++) {
-      state.mem.at(buf + i) = CCharToWord(cBuf[i]);
-    }
-
-    state.rA() = Word(result);
-  };
-
-  // FERRO: (I1:fileIndex)->(A: 0 or error)
-  state.ex.syscalls[StringToMixInt("FERRO")] = [argc, argv](State& state) {
-    int fileno = state.rI(1).value();
-
-    if (!state.ex.file_ptrs.count(fileno))
-      ThrowMixException("File number not found: ", fileno);
-    FILE* f = state.ex.file_ptrs[fileno];
-
-    int result = ferror(f);
-    if (result < -Word::kAbsMask || result > Word::kAbsMask)
-      result = -1;
-
-    state.rA() = Word(result);
-  };
-
-  // FCLOS: (I1:fileIndex)->(A: 0 or error)
-  state.ex.syscalls[StringToMixInt("FCLOS")] = [argc, argv](State& state) {
-    int fileno = state.rI(1).value();
-
-    if (!state.ex.file_ptrs.count(fileno))
-      ThrowMixException("File number not found: ", fileno);
-
-    int result = fclose(state.ex.file_ptrs[fileno]);
-    state.ex.file_ptrs.erase(fileno);
-    state.rA() = Word(result);
-  };
+  state.ex.syscalls[StringToMixInt("FOPEN")] = FOpen;
+  state.ex.syscalls[StringToMixInt("FREAD")] = FRead;
+  state.ex.syscalls[StringToMixInt("FERRO")] = FError;
+  state.ex.syscalls[StringToMixInt("FCLOS")] = FClose;
 }
 
 // ---- Graphics ----
@@ -1766,6 +1783,7 @@ void Window::set_fullscreen(bool full_screen) {
       window_, full_screen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0));
 }
 
+// SETPX: (A: color, I1:x, I2:y)->()
 INLINE void SetPx(State& state) {
   int color = state.rA().value() | 0xff000000u;
   int x = state.rI(1).value();
@@ -1775,109 +1793,121 @@ INLINE void SetPx(State& state) {
   state.ex.pixels[y * state.ex.w + x] = color;
 };
 
+// INITG: (A: w, X: h, I1:fullscreen)->()
+void InitGraph(State& state) {
+  int w = state.rA().value();
+  int h = state.rX().value();
+  int fullscreen = state.rI(1).value();
+
+  BGI_SDL_CHECK_ZERO(SDL_Init(SDL_INIT_VIDEO));
+  BGI_WARN_FALSE(SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "nearest"));
+
+  state.ex.window = std::make_unique<Window>("MIX Machine", w, h, 1);
+  state.ex.window->set_fullscreen(fullscreen);
+  state.ex.surface = std::make_unique<Surface>(w, h);
+  std::fill(state.ex.surface->pixels.begin(), state.ex.surface->pixels.end(),
+            0xffffffffu);
+  state.ex.last_update_ms = SDL_GetTicks();
+  state.ex.pixels = state.ex.surface->pixels.data();
+  state.ex.w = w;
+  state.ex.h = h;
+}
+
+// UPDAG: ()->()
+void UpdateGraph(State& state) {
+  state.ex.window->Update(*state.ex.surface);
+  int64_t time_ms = SDL_GetTicks();
+  if (state.ex.show_frame_time) {
+    if (time_ms >= state.ex.last_update_ms) {
+      int64_t diff_ms = time_ms - state.ex.last_update_ms;
+      std::ostringstream formatted;
+      formatted << std::fixed << std::setprecision(2);
+      formatted << "Frame: " << diff_ms << " ms";
+      formatted << " " << (1000.0f / diff_ms) << " fps";
+      if (diff_ms > 1000) {
+        formatted << " " << (diff_ms / 1000.0f) << " spf";
+      }
+      std::cout << formatted.str() << std::endl;
+    } else {
+      std::cout << "Frame time could not be calculated.\n";
+    }
+  }
+  state.ex.last_update_ms = time_ms;
+}
+
+// WAITK: ()->(A: keycode, X: scancode, I1:is_repeat, I2:should_quit)
+void WaitKey(State& state) {
+  KeyPress k;
+
+  SDL_Event e;
+  while (!(SDL_WaitEvent(&e) && (e.type == SDL_QUIT || e.type == SDL_KEYDOWN)))
+    ;
+  if (e.type == SDL_QUIT) {
+    k.should_quit = true;
+  } else {
+    k.should_quit = false;
+    k.is_repeat = (e.key.repeat != 0);
+    k.keycode = e.key.keysym.sym;
+    k.scancode = e.key.keysym.scancode;
+  };
+
+  state.rA() = ToWordOr(k.keycode, 0);
+  state.rX() = Word(k.scancode);
+  state.rI(1) = Word(k.is_repeat);
+  state.rI(2) = Word(k.should_quit);
+}
+
+// POLLK: ()->(A: keycode, X: scancode, I1:is_repeat, I2:should_quit,
+// I3:has_key)
+void PollKey(State& state) {
+  KeyPress k;
+  bool has_key = false;
+  SDL_Event e;
+  while (SDL_PollEvent(&e)) {
+    switch (e.type) {
+      case SDL_QUIT:
+        has_key = true;
+        k.should_quit = true;
+        break;
+      case SDL_KEYDOWN:
+        has_key = true;
+        k.should_quit = false;
+        k.is_repeat = (e.key.repeat != 0);
+        k.keycode = e.key.keysym.sym;
+        k.scancode = e.key.keysym.scancode;
+        break;
+      default:;
+    }
+  }
+
+  state.rA() = ToWordOr(k.keycode, 0);
+  state.rX() = Word(k.scancode);
+  state.rI(1) = Word(k.is_repeat);
+  state.rI(2) = Word(k.should_quit);
+  state.rI(3) = Word(has_key);
+}
+
+// FRAMT: (A: enable)->()
+void FrameTime(State& state) {
+  state.ex.show_frame_time = (state.rA().value() != 0);
+}
+
+// CLOSG: ()->()
+void CloseGraph(State& state) {
+  SDL_Quit();
+  state.ex.window.reset();
+  state.ex.surface.reset();
+}
+
 // TODO: Consider: first fill the buffer and then open the window.
 void AddGraphicsSyscalls(State& state) {
-  state.ex.syscalls[StringToMixInt("INITG")] = [](State& state) {
-    int w = state.rA().value();
-    int h = state.rX().value();
-    int fullscreen = state.rI(1).value();
-
-    BGI_SDL_CHECK_ZERO(SDL_Init(SDL_INIT_VIDEO));
-    BGI_WARN_FALSE(SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "nearest"));
-
-    state.ex.window = std::make_unique<Window>("MIX Machine", w, h, 1);
-    state.ex.window->set_fullscreen(fullscreen);
-    state.ex.surface = std::make_unique<Surface>(w, h);
-    std::fill(state.ex.surface->pixels.begin(), state.ex.surface->pixels.end(),
-              0xffffffffu);
-    state.ex.last_update_ms = SDL_GetTicks();
-    state.ex.pixels = state.ex.surface->pixels.data();
-    state.ex.w = w;
-    state.ex.h = h;
-  };
-
-  state.ex.syscalls[StringToMixInt("UPDAG")] = [](State& state) {
-    state.ex.window->Update(*state.ex.surface);
-    int64_t time_ms = SDL_GetTicks();
-    if (state.ex.show_frame_time) {
-      if (time_ms >= state.ex.last_update_ms) {
-        int64_t diff_ms = time_ms - state.ex.last_update_ms;
-        std::ostringstream formatted;
-        formatted << std::fixed << std::setprecision(2);
-        formatted << "Frame: " << diff_ms << " ms";
-        formatted << " " << (1000.0f / diff_ms) << " fps";
-        if (diff_ms > 1000) {
-          formatted << " " << (diff_ms / 1000.0f) << " spf";
-        }
-        std::cout << formatted.str() << std::endl;
-      } else {
-        std::cout << "Frame time could not be calculated.\n";
-      }
-    }
-    state.ex.last_update_ms = time_ms;
-  };
-
+  state.ex.syscalls[StringToMixInt("INITG")] = InitGraph;
+  state.ex.syscalls[StringToMixInt("UPDAG")] = UpdateGraph;
   state.ex.syscalls[StringToMixInt("SETPX")] = SetPx;
-
-  state.ex.syscalls[StringToMixInt("WAITK")] = [](State& state) {
-    KeyPress k;
-
-    SDL_Event e;
-    while (
-        !(SDL_WaitEvent(&e) && (e.type == SDL_QUIT || e.type == SDL_KEYDOWN)))
-      ;
-    if (e.type == SDL_QUIT) {
-      k.should_quit = true;
-    } else {
-      k.should_quit = false;
-      k.is_repeat = (e.key.repeat != 0);
-      k.keycode = e.key.keysym.sym;
-      k.scancode = e.key.keysym.scancode;
-    };
-
-    state.rA() = ToWordOr(k.keycode, 0);
-    state.rX() = Word(k.scancode);
-    state.rI(1) = Word(k.is_repeat);
-    state.rI(2) = Word(k.should_quit);
-  };
-
-  state.ex.syscalls[StringToMixInt("POLLK")] = [](State& state) {
-    KeyPress k;
-    bool has_key = false;
-    SDL_Event e;
-    while (SDL_PollEvent(&e)) {
-      switch (e.type) {
-        case SDL_QUIT:
-          has_key = true;
-          k.should_quit = true;
-          break;
-        case SDL_KEYDOWN:
-          has_key = true;
-          k.should_quit = false;
-          k.is_repeat = (e.key.repeat != 0);
-          k.keycode = e.key.keysym.sym;
-          k.scancode = e.key.keysym.scancode;
-          break;
-        default:;
-      }
-    };
-
-    state.rA() = ToWordOr(k.keycode, 0);
-    state.rX() = Word(k.scancode);
-    state.rI(1) = Word(k.is_repeat);
-    state.rI(2) = Word(k.should_quit);
-    state.rI(3) = Word(has_key);
-  };
-
-  state.ex.syscalls[StringToMixInt("FRAMT")] = [](State& state) {
-    state.ex.show_frame_time = (state.rA().value() != 0);
-  };
-
-  state.ex.syscalls[StringToMixInt("CLOSG")] = [](State& state) {
-    SDL_Quit();
-    state.ex.window.reset();
-    state.ex.surface.reset();
-  };
+  state.ex.syscalls[StringToMixInt("WAITK")] = WaitKey;
+  state.ex.syscalls[StringToMixInt("POLLK")] = PollKey;
+  state.ex.syscalls[StringToMixInt("FRAMT")] = FrameTime;
+  state.ex.syscalls[StringToMixInt("CLOSG")] = CloseGraph;
 }
 
 }  // namespace
@@ -1887,6 +1917,8 @@ int main(int argc, char** argv) {
     std::cerr << "usage: mix filename.mixal\n";
     return 1;
   }
+  g_argc = argc;
+  g_argv = argv;
 
   auto parser_state = std::make_unique<ParserState>();
   std::ifstream f(argv[1]);
