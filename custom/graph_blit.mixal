@@ -5,10 +5,9 @@ SYS     EQU     21
 WIDTH   EQU     1920
 HEIGHT   EQU     1080
 
-
 INITG   ALF     "INITG"
 UPDAG   ALF     "UPDAG"
-SETPX   ALF     "SETPX"
+BLIT    ALF     "BLIT"
 POLLK   ALF     "POLLK"
 CLOSG   ALF     "CLOSG"
 FRAMT   ALF     "FRAMT"
@@ -18,7 +17,7 @@ MAGIC   ALF     "MIX26"
         ALF     "IRED "
         ORIG    MAGIC+BLOCK
 
-BUF     ORIG    BUF+BLOCK
+ROWBUF     ORIG    ROWBUF+WIDTH
 
 TMP     CON     0
 R       CON     0
@@ -40,8 +39,8 @@ START   DIV     =0=
         IOC     FRAMT(SYS)
 
 LOOPT   ENT1    0        * X coordinate
-LOOPY   ENT2    0        * Y coordinate
-LOOPX   ST1     G
+        ENT2    0        * Y coordinate
+LOOP    ST1     G
         LDA     G
         MUL     =255=
         DIV     =WIDTH=
@@ -62,14 +61,19 @@ LOOPX   ST1     G
         STX     TMP
         LDA     TMP
         ADD     B
-        IOC     SETPX(SYS)
+        STA     ROWBUF,1
 
-        INC2    1
-        CMP2    =HEIGHT=
-        JL      LOOPX
         INC1    1
         CMP1    =WIDTH=
-        JL      LOOPY
+        JL      LOOP
+
+        ENT1    0
+        ENTA    ROWBUF
+        ENTX    WIDTH
+        IOC     BLIT(SYS)
+        INC2    1
+        CMP2    =HEIGHT=
+        JL      LOOP
 
         IOC     UPDAG(SYS)
 

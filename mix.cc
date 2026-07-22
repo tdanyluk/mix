@@ -590,6 +590,9 @@ INLINE void ioc(State& state, Word instr) {
       SetPx(state);
       return;
     }
+    if (state.ex.syscalls.count(call) == 0) {
+      ThrowMixException("No syscall: ", call);
+    }
     state.ex.syscalls[call](state);
     return;
   }
@@ -1432,6 +1435,9 @@ int StringToMixInt(const std::string& s) {
     }
     res |= mix_char;
   }
+  for (int i = 0; i < 5 - int(s.size()); i++) {
+    res <<= 6;
+  }
   return res;
 }
 
@@ -1793,6 +1799,40 @@ INLINE void SetPx(State& state) {
   state.ex.pixels[y * state.ex.w + x] = color;
 };
 
+// BLIT: (A: buf, X: bufSize, I1: offsetX, I2: offsetY)->()
+// Copies bufSize pixels from MIX memory starting at buf to the surface at pixel
+// offset. Each MIX word is one pixel; the color's alpha is forced to 0xff.
+void BlitPixels(State& state) {
+  int buf = state.rA().value();
+  int bufSize = state.rX().value();
+  int offsetX = state.rI(1).value();
+  int offsetY = state.rI(2).value();
+
+  if (offsetX < 0) {
+    ThrowMixException("offsetX < 0");
+  }
+  if (offsetY < 0) {
+    ThrowMixException("offsetY < 0");
+  }
+  int totalPixels = state.ex.w * state.ex.h;
+  int offset = offsetY * state.ex.w + offsetX;
+
+  bufSize = std::min(bufSize, int(state.mem.size()) - buf);
+  bufSize = std::min(bufSize, totalPixels - offset);
+
+  if (bufSize <= 0) {
+    return;
+  }
+
+  Color* to_begin = state.ex.pixels + offset;
+  Color* to_end = state.ex.pixels + offset + bufSize;
+  Word* from = &state.mem[buf];
+
+  for (Color* p = to_begin; p != to_end; ++p, ++from) {
+    *p = from->data | 0xff000000u;
+  }
+}
+
 // INITG: (A: w, X: h, I1:fullscreen)->()
 void InitGraph(State& state) {
   int w = state.rA().value();
@@ -1904,6 +1944,7 @@ void AddGraphicsSyscalls(State& state) {
   state.ex.syscalls[StringToMixInt("INITG")] = InitGraph;
   state.ex.syscalls[StringToMixInt("UPDAG")] = UpdateGraph;
   state.ex.syscalls[StringToMixInt("SETPX")] = SetPx;
+  state.ex.syscalls[StringToMixInt("BLIT")] = BlitPixels;
   state.ex.syscalls[StringToMixInt("WAITK")] = WaitKey;
   state.ex.syscalls[StringToMixInt("POLLK")] = PollKey;
   state.ex.syscalls[StringToMixInt("FRAMT")] = FrameTime;

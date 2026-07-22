@@ -1,0 +1,69 @@
+TERM    EQU     19
+BLOCK   EQU     14
+SYS     EQU     21
+
+WIDTH   EQU     1920
+HEIGHT   EQU     1080
+COLOR   EQU     333
+
+INITG   ALF     "INITG"
+UPDAG   ALF     "UPDAG"
+SETPX   ALF     "SETPX"
+POLLK   ALF     "POLLK"
+CLOSG   ALF     "CLOSG"
+FRAMT   ALF     "FRAMT"
+
+MAGIC   ALF     "MIX26"
+        ALF     " REQU"
+        ALF     "IRED "
+        ORIG    MAGIC+BLOCK
+
+TMP     CON     0
+R       CON     0
+G       CON     0
+B       CON     0
+RCHANGE CON     0
+
+        ORIG    3000
+START   DIV     =0=
+        JOV     *+1
+        CMPA    MAGIC
+        JNE     UNSUPP
+
+        ENTA    WIDTH
+        ENTX    HEIGHT
+        ENT1    0
+        IOC     INITG(SYS)
+        ENTA    1
+        IOC     FRAMT(SYS)
+
+LOOPT   ENT1    0        * X coordinate
+        ENT2    0        * Y coordinate
+        ENTA    COLOR
+LOOP    IOC     SETPX(SYS)
+        INC1    1
+        CMP1    =WIDTH=
+        JL      LOOP
+
+        ENT1    0
+        INC2    1
+        CMP2    =HEIGHT=
+        JL      LOOP
+
+        IOC     UPDAG(SYS)
+        
+KLOOP   IOC     POLLK(SYS)
+        J3Z     LOOPT
+        J2NZ    EXIT
+        CMPA    =27=    ESC
+        JE      EXIT
+        JMP     KLOOP
+
+EXIT    IOC     CLOSG(SYS)
+        HLT
+
+UNSUPP  OUT     MAGIC(TERM)
+        JBUS    *(TERM)
+        HLT
+
+        END     START
